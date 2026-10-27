@@ -1,0 +1,21 @@
+<script>/* >>> DEBUG ONLY <<< Replace YOUR_MAC_IP with your computer's LAN IP and run launcher-test/results_server.py there. */(function(){
+  function post(d){try{var x=new XMLHttpRequest();x.open('POST','http://YOUR_MAC_IP:8099/results',true);x.setRequestHeader('Content-Type','text/plain');x.send(JSON.stringify(d));}catch(e){}}
+  var token=null; try{token=localStorage.getItem('tvtoken');}catch(e){}
+  var done=false, attempts=0;
+  function connect(){
+    if(done||attempts>14)return; attempts++;
+    var url='wss://127.0.0.1:8002/api/v2/channels/samsung.remote.control?name='+btoa('CleanFrame')+(token?('&token='+token):'');
+    var ws; try{ws=new WebSocket(url);}catch(e){post({tag:'auth',ev:'ctor '+e});return setTimeout(connect,3000);}
+    ws.onmessage=function(e){ var m; try{m=JSON.parse(e.data);}catch(x){return;}
+      if(m.event==='ms.channel.connect'){ done=true; var t=m.data&&m.data.token; if(t){token=t;try{localStorage.setItem('tvtoken',t);}catch(e){}}
+        post({tag:'auth',result:'CONNECTED',token:t||'none',attempt:attempts});
+        setTimeout(function(){try{ws.send(JSON.stringify({method:'ms.remote.control',params:{Cmd:'Click',DataOfCmd:'KEY_VOLUP',Option:'false',TypeOfRemote:'SendRemoteKey'}}));post({tag:'auth',result:'SENT KEY_VOLUP'});}catch(e){}},700);
+      } else if(m.event==='ms.channel.timeOut'){ post({tag:'auth',result:'timeout',attempt:attempts}); }
+      else if(m.event==='ms.channel.unauthorized'){ post({tag:'auth',result:'UNAUTHORIZED',attempt:attempts}); }
+      else { post({tag:'auth',result:'evt '+(m.event||'?'),attempt:attempts}); }
+    };
+    ws.onclose=function(){ if(!done) setTimeout(connect,2500); };
+    ws.onerror=function(){};
+  }
+  setTimeout(connect,2500);
+})();</script>

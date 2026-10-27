@@ -1,0 +1,53 @@
+/* fullscreen + hide harness */
+html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden;}
+body > *:not(.doc){display:none !important;}
+.doc{display:block !important;gap:0 !important;padding:0 !important;margin:0 !important;max-width:none !important;}
+.doc > *:not(.viewport){display:none !important;}
+.controls{display:none !important;}
+.viewport{position:fixed !important;left:0 !important;top:0 !important;width:100vw !important;height:100vh !important;aspect-ratio:auto !important;border-radius:0 !important;background:#000 !important;}
+/* Chromium-76 flex-gap fallback */
+.no-flex-gap .dock > .item + .item,.no-flex-gap .dock > .vrule + .item,.no-flex-gap .dock > .item + .vrule{margin-left:12px;}
+.no-flex-gap .group > * + *{margin-top:22px;}
+.no-flex-gap .credit > * + *{margin-left:10px;}
+.no-flex-gap .item.wide > * + *{margin-left:14px;}
+.no-flex-gap .xpill > * + *{margin-left:10px;}
+.no-flex-gap .panel > * + *{margin-top:4px;}
+.no-flex-gap .row > * + *{margin-left:20px;}
+.no-flex-gap .row .txt > * + *{margin-top:2px;}
+.no-flex-gap .all > * + *{margin-top:36px;}
+.no-flex-gap .sect > * + *{margin-top:16px;}
+.no-flex-gap .hints > * + *{margin-left:32px;}
+.no-flex-gap .tile > * + *{margin-top:14px;}
+.no-flex-gap .tile.off > * + *{margin-top:10px;}
+.no-flex-gap .grid{display:grid !important;grid-template-columns:repeat(6,268px);grid-auto-rows:150px;gap:24px;width:auto !important;}
+/* Chromium-76 inset */
+.slot,.drift,.drift img,.drift canvas.soft,.scrim,.dim,.all,.fglass,.fd,.fd canvas,.fscrim,.ftint{top:0 !important;right:0 !important;bottom:0 !important;left:0 !important;}
+/* faked glass rounding */
+.stage.tv #dock > .fglass,.stage.tv #pill > .fglass,.stage.tv #gear > .fglass{clip-path:inset(0 round 999px) !important;}
+.stage.tv #panel > .fglass{clip-path:inset(0 round 40px) !important;}
+/* look */
+.puck{box-shadow:none !important;}
+.tvbadge{display:none !important;}
+.dim{background:rgba(8,12,16,.66) !important;transition:none !important;}   /* all-apps darkens immediately (no bright flash); art crossfade stays gentle */
+/* label: simple — no slide/width anim (text handled instant in JS), only gentle show/hide fade */
+.pill{transition:opacity 160ms ease !important;}
+/* unpin pill: no left-slide, rises/fades in place, snappy */
+.xpill{transition:opacity 160ms ease,transform 170ms var(--ease-out),background 140ms,color 140ms !important;}
+/* snappier interaction */
+.puck{transition:transform 160ms var(--ease-out),width 160ms var(--ease-out),opacity 120ms !important;}
+.item .ic{transition:opacity 120ms,transform 160ms var(--ease-out) !important;}
+.item{transition:opacity 150ms ease,transform 160ms var(--ease-out),background 130ms !important;}
+.group{transition:transform 280ms var(--ease-out) !important;}
+.gear{transition:transform 140ms var(--ease-out),box-shadow 140ms,opacity 280ms var(--ease-out) !important;}
+.rpuck{transition:transform 150ms var(--ease-out),height 150ms var(--ease-out) !important;}
+.rowsin{transition:transform 160ms var(--ease-out) !important;}
+/* tiles: gentle fill focus, no janky scale */
+.tile.f{transform:none !important;}
+.tile.enter.f{animation-name:rise !important;}
+/* sound panel: snappier close than open */
+.panel{transition:opacity 130ms ease,transform 160ms var(--ease-out) !important;}
+.panel.open{transition:opacity 170ms ease,transform 200ms var(--ease-out) !important;}
+
+/* gentle dock/chrome entry on all-apps close */
+#dock{transition:opacity 280ms var(--ease-out) !important;}
+.top > div{transition:opacity 280ms var(--ease-out) !important;}

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- >>> EDIT FOR YOUR TV <<<
+     Replace YOURPKGID0 (both places on the tizen:application line) with the 10-character package id
+     Tizen generates for you:  tizen create web-project -p tv-samsung-6.0 -t BasicEmptyProject -n CleanFrame
+     Samsung rejects dotted/long ids ("install failed [118,-19] Parsing error"). Keep APP_ID in build.sh in sync. -->
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="http://example.local/cleanframe" version="0.1.0" viewmodes="maximized">
+	<tizen:application id="YOURPKGID0.CleanFrame" package="YOURPKGID0" required_version="2.3"/>
+	<name>CleanFrame</name>
+	<icon src="icon.png"/>
+	<content src="index.html"/>
+	<feature name="http://tizen.org/feature/screen.size.all"/>
+	<access origin="*" subdomains="false"></access>
+	<tizen:privilege name="http://tizen.org/privilege/application.launch"/>
+	<tizen:privilege name="http://tizen.org/privilege/application.info"/>
+	<tizen:privilege name="http://tizen.org/privilege/internet"/>
+	<tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+	<tizen:profile name="tv"/>
+	<tizen:setting background-support="disable" context-menu="disable" encryption="disable" hwkey-event="enable" install-location="auto" screen-orientation="landscape"/>
+</widget>

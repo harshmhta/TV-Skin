@@ -1,0 +1,39 @@
+<script>
+(function(){
+  if(window.Element && !Element.prototype.getAnimations){ Element.prototype.getAnimations=function(){return [];}; }
+  function recompute(){ try{ if(typeof buildDock==='function') buildDock(false); }catch(e){} }
+  function flexGapOK(){var f=document.createElement('div');f.style.cssText='display:flex;flex-direction:column;row-gap:1px;position:absolute;visibility:hidden';f.appendChild(document.createElement('div'));f.appendChild(document.createElement('div'));document.body.appendChild(f);var ok=f.scrollHeight===1;document.body.removeChild(f);return ok;}
+  try{ if(!flexGapOK()){ document.documentElement.classList.add('no-flex-gap'); recompute(); } }catch(e){}
+  try{ if(document.fonts && document.fonts.ready){ document.fonts.ready.then(recompute); } }catch(e){}
+  setTimeout(recompute,1200);
+  try{ if(typeof setRender==='function'){ setRender('tv'); if(typeof hideToast==='function') hideToast(); } }catch(e){}
+  /* label: no text animation, just set instantly */
+  try{ if(typeof setPill==='function'){ window.__osp=setPill; window.setPill=function(t,a,d){ return window.__osp(t,false,d); }; } }catch(e){}
+  /* calm artwork cadence (2 min) */
+  try{ var _sp=document.querySelector('[data-speed="real"]'); if(_sp) _sp.click(); }catch(e){}
+  /* remove the edit "move apps" helper hint */
+  try{ window.editHint=function(){}; }catch(e){}
+  /* >>> CHECK ON YOUR TV <<< These app ids came from a reference TV. Store app ids are usually
+     the same everywhere, but verify yours with tizen.application.getAppsInfo() and edit as needed. */
+  var APPID={youtube:'9Ur5IzDKqV.TizenYouTube',netflix:'org.tizen.netflix-app',viki:'q394VGbAL0.RakutenViki',prime:'org.tizen.primevideo',disney:'MCmYXNxgcu.DisneyPlus',tubi:'3KA0pm7a7V.TubiTV',kocowa:'79p1eXqt51.KOCOWA2'};
+  window.launch=function(id){
+    try{ hideLabel(); }catch(e){}
+    var a=(typeof APPS!=='undefined')?APPS[id]:null;
+    if(id==='tv'||id==='exp'||id==='pc'||id==='xbox'){ toast((id==='xbox'?'Switch to Xbox (HDMI)':'Input switching')+' — wiring up'); if(zone==='all'){try{closeAll();}catch(e){}} return; }
+    var appid=APPID[id];
+    if(!appid){ toast('"'+(a?appName(id):id)+'" is not installed here'); if(zone==='all'){try{closeAll();}catch(e){}} return; }
+    toast(((a&&a.src)?'Switching to ':'Opening ')+appName(id)+'…',1100);
+    try{ tizen.application.launch(appid,function(){},function(err){ toast('Could not open '+appName(id)); }); }catch(e){ toast('Launch error'); }
+    if(zone==='all'){ try{closeAll();}catch(e){} }
+  };
+  document.addEventListener('keydown',function(e){
+    if(e.keyCode===10009){ e.preventDefault(); var z=(typeof zone!=='undefined')?zone:'dock';
+      if(z==='dock'){ try{ tizen.application.getCurrentApplication().exit(); }catch(e2){} } else { try{ key('back'); }catch(e3){} } }
+  },true);
+  try{ if(window.tizen && tizen.tvinputdevice){ tizen.tvinputdevice.registerKey('Return'); } }catch(e){}
+  function refocus(){ try{ var v=document.getElementById('vp'); if(v) v.focus(); }catch(e){} }
+  refocus(); setTimeout(refocus,200); setTimeout(refocus,800); setTimeout(refocus,2000);
+  window.addEventListener('focus',refocus);
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden) refocus(); });
+})();
+</script>

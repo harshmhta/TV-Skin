@@ -1,0 +1,14 @@
+# --- secrets: never publish ---
+certs-backup/
+*.p12
+*.pri
+*.pwd
+*.csr
+# --- TV system DB backups (local rollback only) ---
+backup/*.db
+# --- build outputs ---
+.buildResult/
+*.wgt
+# --- OS / editor noise ---
+.DS_Store
+._*

@@ -1,0 +1,867 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=1920, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>TV launcher · motion prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+body{margin:0;padding:24px;background:var(--background,#0e1114);color:var(--foreground,#e8e8e8);font-family:var(--font-sans,system-ui);}
+:root{--ease-out:cubic-bezier(.2,.8,.2,1);--ease-in:cubic-bezier(.5,0,.75,0);}
+.doc{display:flex;flex-direction:column;gap:20px;font-family:var(--font-sans,system-ui);color:var(--foreground,#eee);}
+.viewport{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;border-radius:var(--radius,12px);background:#0b0f12;outline:none;}
+.viewport:focus-visible{box-shadow:0 0 0 2px var(--ring,#888);}
+.stage *,.stage *::before,.stage *::after{box-sizing:border-box;}
+.stage{position:absolute;left:0;top:0;width:1920px;height:1080px;transform-origin:0 0;font-family:'Manrope',sans-serif;color:#fff;overflow:hidden;}
+.ic{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;}
+.ic svg{width:100%;height:100%;display:block;}
+
+/* artwork: each slot is its own compositor layer; only transform + opacity ever animate */
+.slot{position:absolute;inset:0;opacity:0;will-change:opacity;}
+.drift{position:absolute;inset:0;will-change:transform;transform:translateZ(0);backface-visibility:hidden;}
+.drift img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+.drift canvas.soft{position:absolute;inset:0;width:100%;height:100%;transform:scale(1.08);opacity:0;will-change:opacity;}
+.scrim{position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,rgba(8,12,16,.62) 0%,rgba(8,12,16,0) 30%,rgba(8,12,16,0) 58%,rgba(8,12,16,.55) 100%);}
+.dim{position:absolute;inset:0;background:rgba(8,12,16,.5);opacity:0;transition:opacity 320ms var(--ease-out);pointer-events:none;}
+
+.glass{--tint:rgba(18,24,30,.45);background:var(--tint);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border:1px solid rgba(255,255,255,.12);}
+.top{position:absolute;left:96px;right:96px;top:64px;display:flex;justify-content:space-between;align-items:flex-start;}
+.clock{font-size:64px;line-height:72px;letter-spacing:-.01em;text-shadow:0 2px 18px rgba(0,0,0,.35);}
+.credit{display:flex;gap:10px;font-size:24px;margin-top:10px;max-width:900px;text-shadow:0 2px 14px rgba(0,0,0,.5);transition:opacity 500ms ease;white-space:nowrap;}
+.credit b{min-width:0;font-weight:700;overflow:hidden;text-overflow:ellipsis;}
+.credit span{font-weight:500;color:rgba(255,255,255,.82);flex-shrink:0;}
+.gear{width:72px;height:72px;border-radius:999px;display:flex;align-items:center;justify-content:center;--tint:rgba(255,255,255,.14);background:var(--tint);backdrop-filter:blur(30px);border:1px solid rgba(255,255,255,.12);transition:transform 160ms var(--ease-out),box-shadow 160ms,opacity 260ms var(--ease-out);}
+.gear.f{--tint:rgba(255,255,255,.34);box-shadow:0 0 0 2px rgba(255,255,255,.55);transform:scale(1.06);}
+
+.group{position:absolute;left:50%;bottom:96px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:22px;transition:transform 260ms var(--ease-out);}
+/* fade the frosted pieces themselves, never their parents: a translucent parent switches off backdrop blur */
+.dock{transition:opacity 220ms var(--ease-out);}
+.top>*{transition:opacity 260ms var(--ease-out);}
+.pill{opacity:0;position:relative;height:54px;border-radius:999px;font-size:34px;font-weight:600;letter-spacing:-.01em;overflow:hidden;transition:opacity 160ms ease,width 320ms cubic-bezier(.22,.7,.3,1),transform 240ms var(--ease-out);}
+.pill .pt{position:absolute;left:22px;right:22px;top:0;height:54px;line-height:54px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pill.on{opacity:1;transition-duration:180ms,320ms,240ms;}
+.pill:not(.on){transition-duration:400ms,320ms,240ms;}
+.pill .ch{display:inline-block;}
+.pill .measure{position:absolute;visibility:hidden;white-space:nowrap;}
+.dock{position:relative;display:flex;align-items:center;gap:12px;padding:14px;border-radius:999px;}
+.puck{position:absolute;left:0;top:14px;height:112px;border-radius:999px;background:rgba(255,255,255,.26);box-shadow:inset 0 0 0 2px rgba(255,255,255,.35);transition:transform 220ms var(--ease-out),width 220ms var(--ease-out),opacity 160ms;pointer-events:none;}
+.item{position:relative;width:112px;height:112px;border-radius:999px;display:flex;align-items:center;justify-content:center;flex-shrink:0;z-index:1;}
+.item .ic{opacity:.82;transition:opacity 160ms,transform 220ms var(--ease-out);}
+.item.f .ic{opacity:1;transform:scale(1.08);}
+.item.wide{width:auto;padding:0 32px 0 28px;gap:14px;font-size:28px;font-weight:500;}
+.item.wide .lbl{opacity:.9;}
+.item.f.wide .lbl{opacity:1;font-weight:600;}
+.word{font-weight:800;font-size:36px;letter-spacing:-.03em;}
+.lastdot{position:absolute;bottom:12px;left:calc(50% - 5px);width:10px;height:10px;border-radius:99px;background:rgba(255,255,255,.9);}
+.item{transition:opacity 200ms ease,transform 220ms var(--ease-out),background 160ms;}
+.dock.editing .item{opacity:.45;}
+.dock.editing .item.editing{opacity:1;transform:scale(1.15);background:rgba(255,255,255,.26);box-shadow:inset 0 0 0 2px rgba(255,255,255,.35);z-index:2;}
+.dock.editing .puck{opacity:0!important;}
+.item.off .ic{opacity:.3!important;}
+.xpill{position:absolute;top:-84px;left:0;height:58px;padding:0 22px 0 18px;border-radius:999px;display:flex;align-items:center;gap:10px;font-size:26px;font-weight:600;color:#fff;white-space:nowrap;
+ background:rgba(18,24,30,.6);backdrop-filter:blur(30px);-webkit-backdrop-filter:blur(30px);border:1px solid rgba(255,255,255,.16);
+ opacity:0;transform:translateY(10px) scale(.92);transition:opacity 180ms ease,transform 220ms var(--ease-out),left 300ms var(--ease-out),background 160ms,color 160ms;pointer-events:none;z-index:3;}
+.xpill.show{opacity:1;transform:none;}
+.xpill.f{background:#fff;color:#11181e;transform:scale(1.06);}
+.vrule{width:2px;height:56px;background:rgba(255,255,255,.22);flex-shrink:0;}
+.mono{width:54px;height:54px;border-radius:16px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:26px;}
+
+.panel{position:absolute;width:520px;padding:16px;border-radius:40px;display:flex;flex-direction:column;gap:4px;opacity:0;pointer-events:none;transform-origin:50% 100%;transform:translateY(18px) scale(.94);transition:opacity 200ms ease,transform 260ms var(--ease-out);--tint:rgba(18,24,30,.58);background:var(--tint);}
+.panel.open{opacity:1;transform:none;}
+.eyebrow{font-size:24px;font-weight:600;letter-spacing:.08em;color:rgba(255,255,255,.62);padding:14px 24px 10px;}
+.rows{position:relative;max-height:368px;overflow:hidden;}
+.rows.fade{-webkit-mask-image:linear-gradient(180deg,#000 82%,transparent);mask-image:linear-gradient(180deg,#000 82%,transparent);}
+.rowsin{position:relative;transition:transform 220ms var(--ease-out);}
+.rpuck{position:absolute;left:0;right:0;height:88px;border-radius:26px;background:rgba(255,255,255,.2);box-shadow:inset 0 0 0 2px rgba(255,255,255,.3);transition:transform 200ms var(--ease-out),height 200ms var(--ease-out);}
+.row{position:relative;height:88px;display:flex;align-items:center;gap:20px;padding:0 24px;}
+.row.small{height:76px;}
+.row .slotic{width:34px;height:34px;flex-shrink:0;opacity:.85;}
+.row .txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.row .t{font-size:32px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.row.f .t{font-weight:600;}
+.row .s{font-size:24px;color:rgba(255,255,255,.62);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.row.off .t,.row.off .slotic{opacity:.3;}
+.row.link .t{font-size:26px;color:rgba(255,255,255,.72);}
+.rule{height:1px;margin:4px 8px;background:rgba(255,255,255,.12);}
+.spin{width:22px;height:22px;border-radius:99px;border:3px solid rgba(255,255,255,.25);border-top-color:#fff;animation:spin .8s linear infinite;flex-shrink:0;}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.all{position:absolute;inset:0;padding:72px 96px;display:flex;flex-direction:column;gap:36px;visibility:hidden;pointer-events:none;transition:visibility 0s linear 240ms;}
+.all.open{visibility:visible;transition-delay:0s;}
+.all .ahead,.all .sect>.eyebrow{opacity:0;transition:opacity 220ms ease;}
+.all.open .ahead,.all.open .sect>.eyebrow{opacity:1;}
+.all:not(.open) .tile{opacity:0;}
+.ahead{display:flex;justify-content:space-between;align-items:flex-end;}
+.atitle{font-size:64px;font-weight:700;letter-spacing:-.03em;line-height:68px;}
+.hints{display:flex;gap:32px;font-size:24px;color:rgba(255,255,255,.7);}
+.hints b{color:#fff;font-weight:700;}
+.sect{display:flex;flex-direction:column;gap:16px;}
+.sect .eyebrow{padding:0;}
+.grid{display:flex;flex-wrap:wrap;gap:24px;width:1728px;}
+.tile{position:relative;width:268px;height:150px;border-radius:26px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.08);transition:background 160ms,border-color 160ms,transform 200ms var(--ease-out),box-shadow 160ms,opacity 200ms ease;}
+.tile.f{background:rgba(255,255,255,.32);border-color:transparent;box-shadow:inset 0 0 0 2.4px #fff;backdrop-filter:blur(80px);-webkit-backdrop-filter:blur(80px);transform:scale(1.05);}
+.tile .ic{width:52px;height:52px;}
+.tile .word{font-size:34px;height:52px;display:flex;align-items:center;}
+.tlab{max-width:236px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:26px;font-weight:500;color:rgba(255,255,255,.88);}
+.tlab span.m{display:inline-block;}
+.tile.f .tlab.scroll{text-overflow:clip;}
+.tile.f .tlab{font-weight:700;color:#fff;}
+.tile.off>*{opacity:.3;}
+.tile .sub{font-size:20px;line-height:22px;margin-top:-8px;color:rgba(255,255,255,.75);}
+.tile.off{gap:10px;}
+.tile.enter{animation:rise 300ms var(--ease-out) backwards;}
+.tile.enter.f{animation-name:riseF;}
+@keyframes riseF{from{opacity:0;transform:translateY(28px) scale(1.05)}to{opacity:1;transform:scale(1.05)}}
+@keyframes rise{from{opacity:0;transform:translateY(28px)}to{opacity:1;transform:none}}
+
+.toast{position:absolute;left:50%;top:64px;transform:translate(-50%,-20px);padding:16px 30px;border-radius:999px;font-size:28px;font-weight:600;opacity:0;transition:opacity 200ms,transform 260ms var(--ease-out);pointer-events:none;white-space:nowrap;}
+.toast.show{opacity:1;transform:translate(-50%,0);}
+
+/* TV-accurate mode: no live backdrop blur; glass is a lined-up piece of the pre-blurred artwork */
+.fglass{position:absolute;inset:0;border-radius:inherit;overflow:hidden;pointer-events:none;display:none;}
+.stage.tv .fglass{display:block;}
+.fwin{position:absolute;left:0;top:0;width:1920px;height:1080px;}
+.fd{position:absolute;inset:0;}
+.fd canvas{position:absolute;inset:0;width:100%;height:100%;transform:scale(1.08);}
+.fscrim{position:absolute;inset:0;background:linear-gradient(180deg,rgba(8,12,16,.62) 0%,rgba(8,12,16,0) 30%,rgba(8,12,16,0) 58%,rgba(8,12,16,.55) 100%);}
+.ftint{position:absolute;inset:0;background:var(--tint);}
+.stage.tv .glass,.stage.tv .gear{background:transparent!important;}
+.stage.tv *{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;}
+.gear{position:relative;}
+.stage.tv .eyebrow,.stage.tv .gear>.ic,.stage.tv .vrule{position:relative;}
+.stage.tv .xpill{background:rgba(18,24,30,.82);}
+.stage.tv .xpill.f{background:#fff;}
+.stage.tv .toast{background:rgba(18,24,30,.82)!important;}
+.tvbadge{position:absolute;right:24px;bottom:20px;padding:10px 20px;border-radius:999px;background:rgba(0,0,0,.6);font-size:24px;font-weight:600;color:#fff;display:none;}
+.stage.tv .tvbadge,.stage.flat .tvbadge{display:block;}
+.stage.flat *{backdrop-filter:none!important;-webkit-backdrop-filter:none!important;}
+/* controls + docs (use host theme) */
+.controls{display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between;}
+.remote{display:grid;grid-template-columns:repeat(3,40px);grid-template-rows:repeat(3,40px);gap:4px;}
+.remote button,.btn{font:inherit;font-size:13px;border-radius:calc(var(--radius,10px) - 2px);border:1px solid var(--border,#444);background:var(--secondary,#222);color:var(--secondary-foreground,#eee);cursor:pointer;}
+.remote button{width:40px;height:40px;padding:0;}
+.remote .ok{background:var(--primary,#fff);color:var(--primary-foreground,#000);font-weight:600;}
+.side{display:flex;flex-direction:column;gap:8px;font-size:13px;}
+.side .row2{display:flex;flex-wrap:wrap;gap:8px;align-items:center;}
+.btn{padding:6px 10px;}
+.btn.on{background:var(--accent-surface,#333);color:var(--accent-surface-foreground,#fff);border-color:var(--accent,#888);}
+.muted{color:var(--muted-foreground,#999);}
+h3{margin:8px 0 0;font-size:15px;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th,td{text-align:left;padding:8px 10px 8px 0;border-bottom:1px solid var(--border,#333);vertical-align:top;}
+th{color:var(--muted-foreground,#999);font-weight:600;}
+.tag{display:inline-block;padding:1px 7px;border-radius:99px;font-size:11px;font-weight:600;white-space:nowrap;}
+.tag.ok{background:var(--success,#2a5);color:var(--success-foreground,#fff);}
+.tag.test{background:var(--warning,#b80);color:var(--warning-foreground,#000);}
+.tag.no{background:var(--destructive,#c33);color:var(--destructive-foreground,#fff);}
+code{font-family:var(--font-mono,monospace);font-size:12px;}
+</style><style>
+/* fullscreen + hide harness */
+html,body{margin:0;padding:0;width:100%;height:100%;background:#000;overflow:hidden;}
+body > *:not(.doc){display:none !important;}
+.doc{display:block !important;gap:0 !important;padding:0 !important;margin:0 !important;max-width:none !important;}
+.doc > *:not(.viewport){display:none !important;}
+.controls{display:none !important;}
+.viewport{position:fixed !important;left:0 !important;top:0 !important;width:100vw !important;height:100vh !important;aspect-ratio:auto !important;border-radius:0 !important;background:#000 !important;}
+/* Chromium-76 flex-gap fallback */
+.no-flex-gap .dock > .item + .item,.no-flex-gap .dock > .vrule + .item,.no-flex-gap .dock > .item + .vrule{margin-left:12px;}
+.no-flex-gap .group > * + *{margin-top:22px;}
+.no-flex-gap .credit > * + *{margin-left:10px;}
+.no-flex-gap .item.wide > * + *{margin-left:14px;}
+.no-flex-gap .xpill > * + *{margin-left:10px;}
+.no-flex-gap .panel > * + *{margin-top:4px;}
+.no-flex-gap .row > * + *{margin-left:20px;}
+.no-flex-gap .row .txt > * + *{margin-top:2px;}
+.no-flex-gap .all > * + *{margin-top:36px;}
+.no-flex-gap .sect > * + *{margin-top:16px;}
+.no-flex-gap .hints > * + *{margin-left:32px;}
+.no-flex-gap .tile > * + *{margin-top:14px;}
+.no-flex-gap .tile.off > * + *{margin-top:10px;}
+.no-flex-gap .grid{display:grid !important;grid-template-columns:repeat(6,268px);grid-auto-rows:150px;gap:24px;width:auto !important;}
+/* Chromium-76 inset */
+.slot,.drift,.drift img,.drift canvas.soft,.scrim,.dim,.all,.fglass,.fd,.fd canvas,.fscrim,.ftint{top:0 !important;right:0 !important;bottom:0 !important;left:0 !important;}
+/* faked glass rounding */
+.stage.tv #dock > .fglass,.stage.tv #pill > .fglass,.stage.tv #gear > .fglass{clip-path:inset(0 round 999px) !important;}
+.stage.tv #panel > .fglass{clip-path:inset(0 round 40px) !important;}
+/* look */
+.puck{box-shadow:none !important;}
+.tvbadge{display:none !important;}
+.dim{background:rgba(8,12,16,.66) !important;transition:none !important;}   /* all-apps darkens immediately (no bright flash); art crossfade stays gentle */
+/* label: simple — no slide/width anim (text handled instant in JS), only gentle show/hide fade */
+.pill{transition:opacity 160ms ease !important;}
+/* unpin pill: no left-slide, rises/fades in place, snappy */
+.xpill{transition:opacity 160ms ease,transform 170ms var(--ease-out),background 140ms,color 140ms !important;}
+/* snappier interaction */
+.puck{transition:transform 160ms var(--ease-out),width 160ms var(--ease-out),opacity 120ms !important;}
+.item .ic{transition:opacity 120ms,transform 160ms var(--ease-out) !important;}
+.item{transition:opacity 150ms ease,transform 160ms var(--ease-out),background 130ms !important;}
+.group{transition:transform 280ms var(--ease-out) !important;}
+.gear{transition:transform 140ms var(--ease-out),box-shadow 140ms,opacity 280ms var(--ease-out) !important;}
+.rpuck{transition:transform 150ms var(--ease-out),height 150ms var(--ease-out) !important;}
+.rowsin{transition:transform 160ms var(--ease-out) !important;}
+/* tiles: gentle fill focus, no janky scale */
+.tile.f{transform:none !important;}
+.tile.enter.f{animation-name:rise !important;}
+/* sound panel: snappier close than open */
+.panel{transition:opacity 130ms ease,transform 160ms var(--ease-out) !important;}
+.panel.open{transition:opacity 170ms ease,transform 200ms var(--ease-out) !important;}
+
+/* gentle dock/chrome entry on all-apps close */
+#dock{transition:opacity 280ms var(--ease-out) !important;}
+.top > div{transition:opacity 280ms var(--ease-out) !important;}
+
+</style>
+</head>
+<body><div class="doc">
+
+<div class="viewport" id="vp" tabindex="0" aria-label="TV prototype. Use arrow keys, Enter, and Backspace.">
+ <div class="stage" id="stage">
+  <div id="slots"></div>
+  <div class="scrim"></div>
+  <div class="dim" id="dim"></div>
+  <div class="top" id="top">
+   <div><div class="clock" id="clock">9:41</div><div class="credit" id="credit"></div></div>
+   <div class="gear" id="gear"><span class="ic" style="width:34px;height:34px" data-ic="settings"></span></div>
+  </div>
+  <div class="group" id="group">
+   <div class="pill glass" id="pill"><span class="measure" id="pillmeasure"></span><span class="pt" id="pilltext">Netflix</span></div>
+   <div class="dock glass" id="dock"><div class="puck" id="puck"></div><div class="xpill" id="xpill"><span class="ic" style="width:26px;height:26px"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></span><span>Unpin</span></div></div>
+  </div>
+  <div class="panel glass" id="panel">
+   <div class="eyebrow">PLAY SOUND ON</div>
+   <div class="rows" id="rows"><div class="rowsin" id="rowsin"></div></div>
+  </div>
+  <div class="all" id="all">
+   <div class="ahead"><div class="atitle">All apps</div><div class="hints"><span>Hold <b>OK</b> to pin to the dock</span><span><b>Back</b> to close</span></div></div>
+   <div class="sect"><div class="eyebrow">APPS</div><div class="grid" id="gridApps"></div></div>
+   <div class="sect"><div class="eyebrow">SOURCES &amp; SOUND</div><div class="grid" id="gridSrc"></div></div>
+  </div>
+  <div class="toast glass" id="toast"></div>
+  <div class="tvbadge" id="tvbadge"></div>
+ </div>
+</div>
+
+<div class="controls">
+ <div class="remote" aria-label="Remote">
+  <span></span><button data-k="up" aria-label="Up">▲</button><span></span>
+  <button data-k="left" aria-label="Left">◀</button><button class="ok" data-k="ok">OK</button><button data-k="right" aria-label="Right">▶</button>
+  <button data-k="back" title="Back">↩</button><button data-k="down" aria-label="Down">▼</button><button id="holdok" title="Hold OK" style="font-size:10px;line-height:1.1">Hold OK</button>
+ </div>
+ <div class="side">
+  <div class="row2"><span class="muted">Scenarios:</span>
+   <button class="btn" data-sc="headphones">Headphones paired</button>
+   <button class="btn" data-sc="long">Long names</button>
+   <button class="btn" data-sc="unplugged">Drive unplugged</button>
+   <button class="btn" data-sc="missing">App without icon</button>
+  </div>
+  <div class="row2"><span class="muted">Label animation:</span>
+   <button class="btn on" data-pill="roll">Odometer roll</button>
+   <button class="btn" data-pill="gentleroll">Gentle roll</button>
+   <button class="btn" data-pill="softroll">Soft roll (with blur)</button>
+   <button class="btn" data-pill="slideup">Slide up</button>
+   <button class="btn" data-pill="direction">Follow direction</button>
+   <button class="btn" data-pill="blur">Blur swap</button>
+   <button class="btn" data-pill="cascade">Letter cascade</button>
+   <button class="btn" data-pill="fade">Quiet fade</button>
+  </div>
+    <div class="row2"><span class="muted">Rendering:</span>
+   <button class="btn on" data-render="real">Mac browser: real blur</button>
+   <button class="btn" data-render="tv">TV-accurate: faked glass</button>
+   <button class="btn" data-render="flat">TV with no glass</button>
+   <span class="muted">The first two should look almost the same, which shows the fake works. The third shows the TV without it.</span>
+  </div>
+  <div class="row2"><span class="muted">Robustness:</span>
+   <button class="btn" id="runtest">Run self-test</button><span class="muted" id="selftest">Fires 160 random presses, artwork changes and All apps toggles, and checks nothing breaks</span>
+  </div>
+  <div class="row2"><span class="muted">Art timing:</span>
+   <button class="btn on" data-speed="fast">Demo (8 s)</button>
+   <button class="btn" data-speed="real">Real (2 min)</button>
+   <button class="btn" id="next">Next artwork now</button>
+  </div>
+  <div class="muted">Click the TV, then use the arrow keys, Enter and Backspace, or the remote buttons. Try: hold Enter (or <b>Hold OK</b>) on any app to move or unpin it · in All apps, hold OK on an app to pin it · Right to Sound → OK.</div>
+ </div>
+</div>
+
+<h3>Motion spec</h3>
+<table>
+<tr><th>Moment</th><th>What moves</th><th>Timing</th><th>On your TV</th></tr>
+<tr><td>Artwork on screen</td><td>Zooms in from the centre by 4.5%, at a steady speed, for the whole time it's shown</td><td>2 min, linear</td><td>Painting on its own layer and only the zoom animates. Watch for stutter on the 2020 chip.</td></tr>
+<tr><td>Artwork change</td><td>Blur out → swap while blurred → blur in. The credit fades out and back in.</td><td>1.4 s ease-in · 0.7 s · 1.6 s ease-out</td><td>Fades to a blurred copy prepared in advance, never a live blur</td></tr>
+<tr><td>Dock focus</td><td>One highlight slides between icons. The focused icon grows to 1.08× and the label pill updates.</td><td>220 ms ease-out</td><td>Slide and fade only</td></tr>
+<tr><td>App name label (default: Odometer roll)</td><td><b>Odometer roll</b>, the default: names roll the full height of the pill like a counter, upward when you move right and downward when you move left, with no fade and no blur, in 240 ms. <b>Gentle roll</b> moves names 38% of the pill's height and fades them, 280 ms out and 380 ms in. <b>Soft roll</b> is Gentle roll plus a 4 px blur. The other options are still there to compare: <b>Slide up</b>: old name rises out, new name rises in. <b>Odometer roll</b>: names roll like a counter, upward when you move right and downward when you move left. <b>Follow direction</b>: names slide sideways in the direction you pressed. <b>Blur swap</b>: blur out, blur in. <b>Letter cascade</b>: letters rise one after another. <b>Quiet fade</b>: a simple crossfade. In every option the pill's width eases to fit the name.</td><td>Odometer 240 ms · width 320 ms</td><td>All are movement and fade except Blur swap, which costs the most on your TV's chip</td></tr>
+<tr><td>Label position</td><td>The pill sits above the focused app and slides sideways with the highlight, kept inside the screen's safe margins</td><td>240 ms ease-out, alongside the highlight</td><td>Slide only</td></tr>
+<tr><td>Label visibility</td><td>Hidden when Home opens. It appears when you move between apps and fades away after 5 seconds with no key press. It's also hidden while the sound panel or All apps is open, or while editing the dock.</td><td>Appears in 180 ms · fades out in 400 ms</td><td>Fade only</td></tr>
+<tr><td>End of dock</td><td>Highlight nudges 10 px and settles. It doesn't wrap around.</td><td>160 ms</td><td>Samsung's rule: lists stop at the ends</td></tr>
+<tr><td>Open app or input</td><td>A toast says "Opening …" for apps or "Switching to …" for inputs</td><td>200 ms</td><td>Slide and fade only</td></tr>
+<tr><td>Hold OK on a pinned app</td><td>After 0.55 s the app grows to 1.15×, the rest of the dock dims to 45%, a "✕ Unpin" pill rises in above the app, and a hint shows at the top</td><td>220 ms</td><td>Your remote sends separate press and release signals, so holding can be detected</td></tr>
+<tr><td>Moving an app</td><td>◀ ▶ slides the app into its new slot while its neighbours shift over, and the ✕ pill follows. At either end of the apps (before All apps) it nudges and stops.</td><td>300 ms</td><td>Slide only</td></tr>
+<tr><td>Unpinning</td><td>▲ highlights "✕ Unpin" (it turns white). OK shrinks the app to half size as it fades, and the gap closes.</td><td>180 ms · gap 300 ms</td><td>Slide and fade only</td></tr>
+<tr><td>Pinning from All apps</td><td>Holding OK makes the tile pulse, a toast confirms, and the app joins the end of the dock</td><td>260 ms</td><td>Slide and fade only</td></tr>
+<tr><td>Sound panel</td><td>Grows up out of the Sound button (from 0.94×, rising 18 px) while fading in. Its highlight slides between rows.</td><td>260 ms in · 200 ms out</td><td>Slide and fade only</td></tr>
+<tr><td>Picking an output</td><td>A spinner appears at the end of the row. Then the panel closes and a toast confirms, or a toast explains what went wrong.</td><td>~1 s (real time depends on the TV)</td><td>Depends on the unproven sound shortcut</td></tr>
+<tr><td>All apps</td><td>The dock and clock fade away, the painting blurs and dims, and the tiles rise in a stagger</td><td>220 ms · 300 ms per tile, 18 ms apart</td><td>Same pre-blurred copy as the artwork change</td></tr>
+<tr><td>Tile focus</td><td>White fill at 32%, solid white 2.4 px inner outline and an 80 px background blur, growing to 1.05×. Long names scroll sideways after a short pause.</td><td>160–200 ms · scroll after 0.8 s</td><td>Scrolling only happens on the focused tile</td></tr>
+</table>
+
+<h3>Edge cases</h3>
+<table>
+<tr><th>Case</th><th>Behaviour</th><th>Status</th></tr>
+<tr><td>Headphones or other Bluetooth devices paired</td><td>Each one gets its own row with a matching icon. Devices that are off are faded out; picking one shows a spinner, then a message if it isn't reachable. Includes a "Pair a new device" row.</td><td><span class="tag test">Needs TV test</span> We don't know yet whether the app can read your paired devices. If it can't, you list your outputs once in the launcher's settings.</td></tr>
+<tr><td>Which output is active right now</td><td>No checkmark. The panel opens with focus on the output you last picked.</td><td><span class="tag no">Not possible</span> Samsung doesn't tell apps</td></tr>
+<tr><td>More than 4 outputs</td><td>The panel shows 4 rows and scrolls with focus, with a fade at the edge</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>Long device names</td><td>Cut to one line with "…"</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>Long app names</td><td>Dock pill: one line, "…" after 640 px. All apps tile: cut with "…", and scrolls sideways when focused.</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>App with no logo</td><td>A rounded tile showing the app's first two letters</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>Dock order</td><td>Starts as YouTube, Netflix, Xbox, Viki, Prime Video. Every app can be moved or unpinned. New pins always go at the end, never into a random spot. Up to 7 apps.</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>Unpinning everything</td><td>The dock keeps just All apps and Sound</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>Pinning when the dock is full</td><td>The tile shakes, and a message says 7 is the limit and how to unpin one</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>Pinning something already in the dock</td><td>A short message, and nothing changes</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>Unpinning</td><td>The app leaves the dock but stays in All apps. Focus moves to the app that took its place.</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>Back while editing</td><td>Leaves edit mode. Moves you've already made are kept.</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>Inputs (TV, Xbox, Expansion, PC)</td><td>Pinned, moved and unpinned exactly like apps</td><td><span class="tag ok">Designed</span> Switching inputs <span class="tag test">needs TV test</span></td></tr>
+<tr><td>Holding OK on the remote</td><td>Hold detection needs the remote's press and release signals to reach the app</td><td><span class="tag test">Needs TV test</span></td></tr>
+<tr><td>Expansion drive unplugged</td><td>Tile faded out, with no extra text, in All apps and in the dock if pinned. OK shows a short message.</td><td><span class="tag test">Needs TV test</span> Detecting the drive</td></tr>
+<tr><td>App uninstalled</td><td>Removed from the dock and All apps. The gap closes with the same reorder motion.</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>No internet</td><td>Artwork comes from a set stored inside the app, so it always works offline</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>Very bright artwork</td><td>The fade at the top and bottom keeps the clock and dock readable. Paintings that are too bright are filtered out of the set.</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>Long artwork title</td><td>Cut with "…" so the credit never runs past 900 px</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>Back on Home</td><td>Nothing happens. Your launcher is Home, so there's nowhere further back to go.</td><td><span class="tag ok">Designed</span></td></tr>
+<tr><td>Home button opens this launcher</td><td>With the CleanFrame Home takeover, Home opens this launcher. Without it, Home opens Samsung's bar.</td><td><span class="tag test">Needs TV test</span></td></tr>
+</table>
+</div>
+
+<script>
+window.addEventListener('error',e=>{document.documentElement.setAttribute('data-err',e.message+' @'+e.lineno);});
+if(location.hash.includes('still')){const st=document.createElement('style');st.id='still-mode';st.textContent='*,*::before,*::after{transition:none!important;animation-duration:1ms!important;animation-delay:0s!important}';document.head.appendChild(st);}
+const ICONS={"youtube": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"#ffffff\"><path d=\"M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z\" /></svg>\n", "netflix": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"#ffffff\"><path d=\"m5.398 0 8.348 23.602c2.346.059 4.856.398 4.856.398L10.113 0H5.398zm8.489 0v9.172l4.715 13.33V0h-4.715zM5.398 1.5V24c1.873-.225 2.81-.312 4.715-.398V14.83L5.398 1.5z\" /></svg>\n", "xbox": "<svg fill=\"#ffffff\" role=\"img\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M4.102 21.033C6.211 22.881 8.977 24 12 24c3.026 0 5.789-1.119 7.902-2.967 1.877-1.912-4.316-8.709-7.902-11.417-3.582 2.708-9.779 9.505-7.898 11.417zm11.16-14.406c2.5 2.961 7.484 10.313 6.076 12.912C23.002 17.48 24 14.861 24 12.004c0-3.34-1.365-6.362-3.57-8.536 0 0-.027-.022-.082-.042-.063-.022-.152-.045-.281-.045-.592 0-1.985.434-4.805 3.246zM3.654 3.426c-.057.02-.082.041-.086.042C1.365 5.642 0 8.664 0 12.004c0 2.854.998 5.473 2.661 7.533-1.401-2.605 3.579-9.951 6.08-12.91-2.82-2.813-4.216-3.245-4.806-3.245-.131 0-.223.021-.281.046v-.002zM12 3.551S9.055 1.828 6.755 1.746c-.903-.033-1.454.295-1.521.339C7.379.646 9.659 0 11.984 0H12c2.334 0 4.605.646 6.766 2.085-.068-.046-.615-.372-1.52-.339C14.946 1.828 12 3.545 12 3.545v.006z\"/></svg>", "apps": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1.5\"/></svg>\n", "settings": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"1.6\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"m9 3-.6 2.4-2 1.2L4 6l-2 3.5L3.8 11v2L2 14.5 4 18l2.4-.6 2 1.2L9 21h6l.6-2.4 2-1.2 2.4.6 2-3.5-1.8-1.5v-2L22 9.5 20 6l-2.4.6-2-1.2L15 3Z\"/><circle cx=\"12\" cy=\"12\" r=\"3.2\"/></svg>\n", "disneyplus": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"#ffffff\"><path fill=\"#ffffff\" d=\"M2.96 7.303c-.44 0-.96-.058-.96-.319 0-1.839 3.238-1.918 4.618-1.918 1.799 0 4.097.558 6.055 1.258 2.979 1.08 9.016 4.678 9.016 8.795 0 3.638-3.918 5.377-7.556 5.377a20 20 0 0 1-2.918-.3c-.06.221-.1.38-.24.84a4 4 0 0 1-.7.079l-.459-.039c-.3-.36-.4-.939-.52-1.559-1.818-1.059-2.999-1.959-3.538-2.579-.46-.48-.98-1.12-.98-1.739 0-.319.2-.6.66-.918.94-.7 2.139-1.08 4.098-1.421l.04-.818c.02-.2.22-2.339.68-2.739.739.6.819 1.219.879 2.139.02.4.04.819.1 1.259h.28c1.399 0 5.677.359 5.677 2.378 0 .48-.7 1.379-1.38 1.379a1.73 1.73 0 0 1-.879-.259c.299-.341.739-.64.859-.9-.4-.48-2.558-1.039-4.137-1.039a4 4 0 0 0-.52.02l.02 4.378c.639.4 1.419.439 1.918.439 2.2 0 6.756-.379 6.756-3.938 0-3.518-4.497-6.236-7.855-7.515a19.5 19.5 0 0 0-7.216-1.36 6.6 6.6 0 0 0-1.639.18c-.339.08-.459.16-.459.24 0 .139.679.22.76.26a.2.2 0 0 1 .1.159.24.24 0 0 1-.08.16c-.081 0-.26.02-.48.02m6.495 7.016c-1.978.161-4.178.361-4.178 1.06 0 .54.92 1.2 1.48 1.619a6.4 6.4 0 0 0 2.518 1.2Zm10.141-8.955a31 31 0 0 0-.038 1.567c0 .272 0 .583.009.933-.038.176-.291.195-.418.253a1 1 0 0 1-.233-.174V5.482c0-.264.009-.535.009-.944 0-.205 0-.438-.009-.72 0-.175.029-.34.137-.729a.31.31 0 0 1 .272-.204c.223.058.447.155.525.34-.234.691-.214 1.449-.254 2.139m-.349-.077c.389.019.856.038 1.566.038.272 0 .584 0 .933-.009.176.037.196.291.254.417q-.071.129-.175.234h-2.461c-.262 0-.535-.009-.942-.009-.205 0-.439 0-.72.009-.176.002-.341-.027-.73-.135a.32.32 0 0 1-.205-.272c.058-.224.156-.448.34-.526.691.234 1.45.214 2.141.253Z\" /></svg>\n", "hbo": "<svg fill=\"#ffffff\" role=\"img\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M7.042 16.896H4.414v-3.754H2.708v3.754H.01L0 7.22h2.708v3.6h1.706v-3.6h2.628zm12.043.046C21.795 16.94 24 14.689 24 11.978a4.89 4.89 0 0 0-4.915-4.92c-2.707-.002-4.09 1.991-4.432 2.795.003-1.207-1.187-2.632-2.58-2.634H7.59v9.674l4.181.001c1.686 0 2.886-1.46 2.888-2.713.385.788 1.72 2.762 4.427 2.76zm-7.665-3.936c.387 0 .692.382.692.817 0 .435-.305.817-.692.817h-1.33v-1.634zm.005-3.633c.387 0 .692.382.692.817 0 .436-.305.818-.692.818h-1.33V9.373zm1.77 2.607c.305-.039.813-.387.992-.61-.063.276-.068 1.074.006 1.35-.204-.314-.688-.701-.998-.74zm3.43 0a2.462 2.462 0 1 1 4.924 0 2.462 2.462 0 0 1-4.925 0zm2.462 1.936a1.936 1.936 0 1 0 0-3.872 1.936 1.936 0 0 0 0 3.872Z\"/></svg>", "tubi": "<svg fill=\"#ffffff\" role=\"img\" viewBox=\"0 0 24 24\" xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M16.696 15.272v-.752c.4.548 1.107.917 1.934.917 1.475 0 2.28-.956 2.28-2.865 0-1.714-.893-2.858-2.235-2.858-.851 0-1.55.347-1.979.908v-2.06h-2.674v6.71zm1.57-2.614c0 .827-.337 1.275-.827 1.275-.486 0-.837-.452-.837-1.275s.342-1.28.837-1.28c.495 0 .828.452.828 1.28zM6.94 9.988v3.6c0 1.236.754 1.841 1.955 1.841.959 0 1.625-.396 2.028-1.064v.91h2.597V9.989h-2.675v3.14c0 .493-.346.693-.666.693-.321 0-.568-.192-.568-.655V9.989Zm14.39 0H24v5.276h-2.67ZM6.553 11.136c0 .781-.635 1.415-1.42 1.415-.783 0-1.419-.634-1.419-1.415 0-.782.636-1.415 1.42-1.415.784 0 1.42.633 1.42 1.415zM3.49 9.702v2.668c.005.653.327.924.976.924.225 0 .526-.053.672-.166v1.931c-.49.243-.869.378-1.535.378 0 0-.069 0-.18-.006l-.003.006c-1.614 0-2.51-1.035-2.482-2.686v-.47H0V9.99h.92V8.563h2.569Z\"/></svg>", "appletv": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\" fill=\"#ffffff\"><path d=\"M20.57 17.735h-1.815l-3.34-9.203h1.633l2.02 5.987c.075.231.273.9.586 2.012l.297-.997.33-1.006 2.094-6.004H24zm-5.344-.066a5.76 5.76 0 0 1-1.55.207c-1.23 0-1.84-.693-1.84-2.087V9.646h-1.063V8.532h1.121V7.081l1.476-.602v2.062h1.707v1.113H13.38v5.805c0 .446.074.75.214.932.14.182.396.264.75.264.207 0 .495-.041.883-.115zm-7.29-5.343c.017 1.764 1.55 2.358 1.567 2.366-.017.042-.248.842-.808 1.658-.487.71-.99 1.418-1.79 1.435-.783.016-1.03-.462-1.93-.462-.89 0-1.17.445-1.913.478-.758.025-1.344-.775-1.838-1.484-.998-1.451-1.765-4.098-.734-5.88.51-.89 1.426-1.451 2.416-1.46.75-.016 1.468.512 1.93.512.461 0 1.327-.627 2.234-.536.38.016 1.452.157 2.136 1.154-.058.033-1.278.743-1.27 2.219M6.468 7.988c.404-.495.685-1.18.61-1.864-.585.025-1.294.388-1.723.883-.38.437-.71 1.138-.619 1.806.652.05 1.328-.338 1.732-.825Z\" /></svg>\n", "primevideo": "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"5.6 12.6 13 3.4\" fill=\"#ffffff\"><path d=\"M16.007 13.175c.405-.306.944-.408 1.39-.408.418 0 .756.09.828.185.15.2-.039 1.584-.775 2.244-.112.102-.22.047-.17-.087.166-.442.536-1.436.36-1.677-.175-.242-1.158-.115-1.6-.058-.068.008-.107-.02-.112-.061v-.023c.004-.036.03-.078.079-.115z M5.823 13.003a.105.105 0 0 1 .106-.091c.027 0 .057.009.089.028a11.778 11.778 0 0 0 6.194 1.772c1.52 0 3.19-.34 4.726-1.043.232-.105.426.164.2.346-1.371 1.09-3.359 1.67-5.07 1.67-2.397 0-4.557-.956-6.191-2.547a.173.173 0 0 1-.054-.097Z\" /></svg>\n", "speaker": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M11 5 6 9H2v6h4l5 4V5z\"/><path d=\"M15.5 8.5a5 5 0 0 1 0 7\"/><path d=\"M19 5a10 10 0 0 1 0 14\"/></svg>", "soundbar": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"9\" width=\"20\" height=\"6\" rx=\"2\"/><circle cx=\"7\" cy=\"12\" r=\".8\" fill=\"#fff\"/><circle cx=\"17\" cy=\"12\" r=\".8\" fill=\"#fff\"/></svg>", "tvspk": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"4\" width=\"20\" height=\"13\" rx=\"2\"/><path d=\"M8 21h8\"/></svg>", "headphones": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3\"/></svg>", "plus": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 5v14M5 12h14\"/></svg>", "chev": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M9 6l6 6-6 6\"/></svg>", "hdd": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M22 12H2\"/><path d=\"M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z\"/><path d=\"M6 16h.01\"/><path d=\"M10 16h.01\"/></svg>", "tv": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect width=\"20\" height=\"15\" x=\"2\" y=\"7\" rx=\"2\"/><path d=\"m17 2-5 5-5-5\"/></svg>", "pc": "<svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#ffffff\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"2\" y=\"4\" width=\"20\" height=\"13\" rx=\"2\"/><path d=\"M8 21h8M12 17v4\"/></svg>"};
+const scen={headphones:false,long:false,unplugged:false,missing:false};
+
+const ART_BASE="art/";
+const $=s=>document.querySelector(s);
+document.querySelectorAll('[data-ic]').forEach(e=>e.innerHTML=ICONS[e.dataset.ic]);
+
+/* ---------- fit 1920x1080 stage into the viewport ---------- */
+const vp=$('#vp'),stage=$('#stage');
+new ResizeObserver(()=>{stage.style.transform=`scale(${vp.clientWidth/1920})`;}).observe(vp);
+
+/* ---------- artwork engine ----------
+   Rules that keep it robust (same design will ship to the TV):
+   1. One state object. render() derives every layer's target opacity from it, so overlapping
+      requests (artwork change + All apps opening/closing) can never fight over a layer.
+   2. Every async step carries an epoch token; a cancelled or stale step never touches the screen.
+   3. Images are decoded before they're shown; ones that fail or time out are skipped.
+   4. Only transform and opacity animate (compositor-only; the TV can do these cheaply).
+   5. A watchdog repairs any stuck phase or inconsistent layer; timers pause while the page is hidden. */
+const ART=[
+ {f:'wheatfield.jpg',crop:1.12,t:'Wheat Field with Cypresses',m:'Van Gogh, 1889 · The Met'},
+ {f:'greatwave.jpg',crop:1.0,t:'The Great Wave',m:'Hokusai, ca. 1830 · The Met'},
+ {f:'irises.jpg',crop:1.12,t:'Irises',m:'Van Gogh, 1890 · The Met'}];
+const LONG_TITLE={t:'Under the Wave off Kanagawa (Kanagawa oki nami ura), also known as The Great Wave',m:'Hokusai · The Met'};
+const ART_HOLD={fast:8000,real:120000};
+const PH={out:1400,swap:700,in:1600},OVERLAY_IN=400,OVERLAY_OUT=500,ZOOM=1.10,LOAD_TIMEOUT=8000;
+const REDUCED=matchMedia('(prefers-reduced-motion: reduce)').matches;
+// The blurred copy is drawn ONCE per artwork into a tiny canvas and stretched to full screen.
+// A full-size image with a live CSS blur costs a lot of GPU memory; when Chrome runs short it silently
+// skips drawing it (that's the "sometimes no blur"). The TV build ships these as small pre-blurred files.
+const SOFT_W=320,SOFT_H=180;
+function drawSoft(canvas,img){const c=canvas.getContext('2d'),W=canvas.width,H=canvas.height;
+ const ir=img.naturalWidth/img.naturalHeight,cr=W/H,pad=0.12;               // object-fit: cover, with overscan so blurred edges never show
+ let w,h;if(ir>cr){h=H*(1+pad);w=h*ir;}else{w=W*(1+pad);h=w/ir;}
+ c.clearRect(0,0,W,H);c.filter='blur(5px) saturate(1.1)';c.drawImage(img,(W-w)/2,(H-h)/2,w,h);c.filter='none';}
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+function credit(i){if(i<0)return;const a=(scen.long&&i===1)?LONG_TITLE:ART[i];$('#credit').innerHTML=`<b>${a.t}</b><span>${a.m}</span>`;}
+
+const Art=(()=>{
+ const layers=[0,1].map(()=>{const el=document.createElement('div');el.className='slot';
+  el.innerHTML=`<div class="drift"><img class="sharp" alt=""><canvas class="soft" width="${SOFT_W}" height="${SOFT_H}"></canvas></div>`;$('#slots').appendChild(el);
+  return{el,drift:el.querySelector('.drift'),sharp:el.querySelector('.sharp'),soft:el.querySelector('.soft'),anim:null,idx:-1,crop:1,ver:0};});
+ const st={front:0,idx:-1,phase:'boot',phaseAt:performance.now(),overlay:false,epoch:0,queued:false,bad:new Set(),
+  speed:'fast',timer:null,hidden:document.hidden,lastRender:0,repairs:[],loadLog:[]};
+ const EASE_IN='cubic-bezier(.5,0,.75,0)',EASE_OUT='cubic-bezier(.2,.8,.2,1)';
+ const num=(el,p='opacity')=>parseFloat(getComputedStyle(el)[p]);
+ // set an opacity target; ms=0 snaps. Re-setting the same target is a no-op unless forced.
+ function op(el,v,ms,ease='ease',force=false){const t=String(v);
+  if(!force&&el.style.opacity===t)return;
+  el.style.transition=ms?`opacity ${ms}ms ${ease}`:'none';
+  if(force&&el.style.opacity===t){el.style.opacity=String(1-v);void el.offsetWidth;}
+  el.style.opacity=t;if(!ms)void el.offsetWidth;}
+ const setPhase=p=>{st.phase=p;st.phaseAt=performance.now();};
+ const softTarget=()=>(st.phase==='out'||st.phase==='swap'||st.overlay)?1:0;
+ function render(ms){const F=layers[st.front],B=layers[1-st.front],s=softTarget();
+  op(F.soft,s,ms!=null?ms:(s?OVERLAY_IN:OVERLAY_OUT),s?EASE_IN:EASE_OUT);   // no ?? : TV browser is Chromium 69
+  if(st.phase==='idle'||st.phase==='loading'){op(F.el,1,0);op(B.el,0,0);}   // the swap phase owns its own crossfade
+  op($('#dim'),st.overlay?1:0,st.overlay?OVERLAY_IN:OVERLAY_OUT,EASE_OUT);
+  st.lastRender=performance.now();}
+ function showCredit(on){$('#credit').style.opacity=on?1:0;}
+ function drift(L,fromCurrent=false){
+  let from=L.crop;
+  if(fromCurrent){const m=getComputedStyle(L.drift).transform;const v=m&&m!=='none'?parseFloat(m.replace(/^matrix(3d)?\(/,'')):NaN;if(v>0)from=v;}
+  if(L.anim){L.anim.cancel();L.anim=null;}
+  if(REDUCED){L.drift.style.transform=`translateZ(0) scale(${L.crop})`;return;}
+  const to=L.crop*ZOOM,total=ART_HOLD[st.speed]+PH.out+PH.swap+PH.in;
+  const frac=Math.min(1,Math.max(0,(to-from)/(to-L.crop||1)));
+  L.anim=L.drift.animate([{transform:`translateZ(0) scale(${from})`},{transform:`translateZ(0) scale(${to})`}],
+   {duration:Math.max(1000,total*frac),easing:'linear',fill:'forwards'});}
+ // Test each file on a throwaway Image first; only a confirmed-good file is handed to a visible layer.
+ // (Reusing one <img> after a failed load can leave later decodes hanging, so the layers never see broken files.)
+ function loadInto(L,i,token){const a=ART[i],url=ART_BASE+a.f;return new Promise(res=>{let done=false;
+  const fin=(ok,why)=>{if(done)return;done=true;clearTimeout(to);
+   st.loadLog.push(`${a.f}:${ok?'ok':why}`);if(st.loadLog.length>20)st.loadLog.shift();res(ok&&token===st.epoch);};
+  const to=setTimeout(()=>fin(false,'timeout'),LOAD_TIMEOUT);
+  const probe=new Image();probe.decoding='async';
+  probe.onerror=()=>fin(false,'error');
+  probe.onload=()=>{if(done||token!==st.epoch)return fin(false,'cancelled');
+   L.crop=a.crop;L.idx=i;L.sharp.src=url;drawSoft(L.soft,probe);L.ver++;   // sharp now served from cache; soft drawn once
+   const d=L.sharp.decode?L.sharp.decode().catch(()=>{}):Promise.resolve();
+   Promise.race([d,wait(1500)]).then(()=>fin(true));};
+  probe.src=url;});}
+ async function pickNext(token){const n=ART.length;
+  for(let k=1;k<=n;k++){const i=(st.idx+k+n)%n;if(st.bad.has(i)&&st.bad.size<n)continue;
+   const ok=await loadInto(layers[1-st.front],i,token);if(token!==st.epoch)return null;if(ok)return i;st.bad.add(i);}
+  return null;}
+ const sleep=async(ms,token)=>{await wait(ms);return token===st.epoch;};
+ function schedule(){clearTimeout(st.timer);st.timer=null;if(st.hidden||st.phase!=='idle')return;
+  st.timer=setTimeout(()=>{st.timer=null;advance();},ART_HOLD[st.speed]);}
+ async function advance(){
+  if(st.phase!=='idle'){st.queued=true;return;}
+  clearTimeout(st.timer);st.timer=null;const token=++st.epoch;
+  setPhase('loading');const next=await pickNext(token);if(token!==st.epoch)return;
+  if(next==null){setPhase('idle');render();schedule();return;}          // nothing loadable: keep the current artwork
+  const F=layers[st.front],I=layers[1-st.front];
+  setPhase('out');showCredit(false);render(PH.out);
+  if(!await sleep(PH.out,token))return;
+  setPhase('swap');op(I.soft,1,0);drift(I);op(I.el,1,PH.swap);op(F.el,0,PH.swap);
+  if(!await sleep(PH.swap,token))return;
+  st.front=1-st.front;st.idx=next;credit(next);showCredit(true);
+  setPhase('in');render(PH.in);
+  if(!await sleep(PH.in,token))return;
+  if(F.anim){F.anim.cancel();F.anim=null;}op(F.soft,0,0);               // tidy the now-hidden layer
+  setPhase('idle');render();schedule();
+  if(st.queued){st.queued=false;advance();}}
+ // force a clean idle state from wherever we are (used by the watchdog)
+ function settle(reason){st.epoch++;st.queued=false;
+  if(st.phase==='swap'){const I=layers[1-st.front];if(I.idx>=0&&num(I.el)>=num(layers[st.front].el)){st.front=1-st.front;st.idx=I.idx;}}
+  const F=layers[st.front],B=layers[1-st.front];
+  op(F.el,1,0,'ease',true);op(B.el,0,0,'ease',true);op(B.soft,0,0);if(B.anim){B.anim.cancel();B.anim=null;}
+  setPhase('idle');op(F.soft,st.overlay?1:0,300,EASE_OUT,true);render();
+  if(!F.anim)drift(F,true);credit(st.idx);showCredit(true);schedule();
+  st.repairs.push(`${new Date().toLocaleTimeString()} ${reason}`);console.warn('[art] repaired:',reason);}
+ setInterval(()=>{if(st.phase==='boot')return;
+  const age=performance.now()-st.phaseAt;
+  const lim={loading:LOAD_TIMEOUT*ART.length+2000,out:PH.out+2000,swap:PH.swap+2000,in:PH.in+2000}[st.phase];
+  if(lim&&age>lim)return settle('stuck in '+st.phase);
+  if(st.phase!=='idle')return;
+  const F=layers[st.front],B=layers[1-st.front];
+  if(F.el.style.opacity!=='1'||B.el.style.opacity!=='0')return settle('layer targets out of sync');
+  if(performance.now()-st.lastRender>1500){
+   const want=st.overlay?1:0;if(Math.abs(num(F.soft)-want)>0.02){op(F.soft,want,300,EASE_OUT,true);st.repairs.push('blur level corrected');}
+   if(num(F.el)<0.98||num(B.el)>0.02)settle('layer visibility out of sync');}
+  if(!st.hidden&&!st.timer)schedule();},1000);
+ document.addEventListener('visibilitychange',()=>{st.hidden=document.hidden;
+  if(st.hidden){clearTimeout(st.timer);st.timer=null;}else if(st.phase==='idle')schedule();});
+ async function boot(){const token=++st.epoch;
+  for(let k=0;k<ART.length;k++){const L=layers[0];const ok=await loadInto(L,k,token);
+   if(ok){st.front=0;st.idx=k;op(L.el,1,600);drift(L);credit(k);showCredit(true);setPhase('idle');render();schedule();return;}
+   st.bad.add(k);}
+  setPhase('idle');showCredit(false);}                                    // no artwork at all: the stage's dark ground stays
+ boot();
+ return{layers,state:st,
+  next(){st.phase==='idle'?advance():(st.queued=true);},
+  setOverlay(on){on=!!on;if(on===st.overlay)return;st.overlay=on;render();},
+  setSpeed(s){st.speed=s;drift(layers[st.front],true);if(st.phase==='idle')schedule();},
+  refreshCredit(){credit(st.idx);},settle};
+})();
+const slots=Art.layers;
+function setBlur(on){Art.setOverlay(on);}
+$('#next').onclick=()=>{Art.next();vp.focus();};
+document.querySelectorAll('[data-speed]').forEach(b=>b.onclick=()=>{
+ document.querySelectorAll('[data-speed]').forEach(x=>x.classList.toggle('on',x===b));Art.setSpeed(b.dataset.speed);vp.focus();});
+
+/* ---------- data ---------- */
+const APPS={
+ youtube:{n:'YouTube',ic:'youtube'},netflix:{n:'Netflix',ic:'netflix'},xbox:{n:'Xbox',ic:'xbox',src:true},
+ viki:{n:'Rakuten Viki',word:'Viki'},prime:{n:'Prime Video',ic:'primevideo',w:64},disney:{n:'Disney+',ic:'disneyplus'},
+ hbo:{n:'HBO Max',ic:'hbo'},peacock:{n:'Peacock',word:'peacock'},tubi:{n:'Tubi',ic:'tubi'},kocowa:{n:'Kocowa+',word:'KOCOWA'},
+ appletv:{n:'Apple TV',ic:'appletv'},tvplus:{n:'Samsung TV Plus',word:'TV+'},
+ paramount:{n:'Paramount+ with SHOWTIME',mono:'P+'},pbs:{n:'PBS KIDS Video',mono:'PB'},
+ tv:{n:'TV',ic:'tv',src:true},exp:{n:'Expansion',ic:'hdd',src:true},pc:{n:'PC on TV',ic:'pc',src:true}};
+const MAX_PINNED=7; // default order below; every app can be moved or unpinned, new pins go at the end
+let pinned=['youtube','netflix','xbox','viki','prime'];
+function appName(id){return id==='viki'&&scen.long?'Rakuten Viki: Asian Dramas & Movies':APPS[id].n;}
+function glyph(id,size){const a=APPS[id];
+ if(a.mono||(scen.missing&&id==='peacock'))return `<div class="mono">${a.mono||'Pe'}</div>`;
+ if(a.word)return `<span class="word" style="font-size:${a.word.length>4?Math.round(size*.62):Math.round(size*.68)}px">${a.word}</span>`;
+ return `<span class="ic" style="width:${a.w||size}px;height:${size}px">${ICONS[a.ic]}</span>`;}
+
+/* ---------- dock ---------- */
+const dock=$('#dock'),puck=$('#puck');
+let dockItems=[],dockIdx=1,zone='dock';
+function dockOrder(){return [...pinned];}
+function buildDock(animate){
+ const before=new Map(dockItems.filter(d=>d.el).map(d=>[d.id,d.el.getBoundingClientRect().left]));
+ dock.querySelectorAll('.item,.vrule').forEach(e=>e.remove());
+ dockItems=dockOrder().map(id=>({id,kind:'app'}));
+ dockItems.push({id:'all',kind:'all'},{id:'sound',kind:'sound'});
+ for(const d of dockItems){
+  if(d.id==='sound'){const r=document.createElement('div');r.className='vrule';dock.appendChild(r);}
+  const el=document.createElement('div');el.className='item'+(d.id==='sound'?' wide':'')+(zone==='edit'&&d.id===editId?' editing':'')+(d.id==='exp'&&scen.unplugged?' off':'');
+  if(d.kind==='app')el.innerHTML=glyph(d.id,54);
+  else if(d.id==='all')el.innerHTML=`<span class="ic" style="width:44px;height:44px;opacity:.75">${ICONS.apps}</span>`;
+  else el.innerHTML=`<span class="ic" style="width:34px;height:34px">${ICONS.speaker}</span><span class="lbl">Sound</span>`;
+  dock.appendChild(el);d.el=el;}
+ if(animate){const sc=vp.clientWidth/1920;dockItems.forEach(d=>{const b=before.get(d.id);if(b==null)return;
+  const dx=(b-d.el.getBoundingClientRect().left)/sc;if(Math.abs(dx)<1)return;
+  const k=d.el.classList.contains('editing')?' scale(1.15)':'';
+  d.el.animate([{transform:`translateX(${dx}px)${k}`},{transform:`translateX(0px)${k}`||'none'}],{duration:300,easing:'cubic-bezier(.2,.8,.2,1)'});});}
+ focusDock(Math.min(dockIdx,dockItems.length-1),false);}
+function label(d){return d.kind==='app'?appName(d.id):d.id==='all'?'All apps':'Sound';}
+function focusDock(i,anim=true){const prevIdx=dockIdx;dockIdx=i;dockItems.forEach((d,j)=>d.el.classList.toggle('f',j===i&&(zone==='dock'||zone==='panel')));
+ const el=dockItems[i].el;puck.style.transition=anim?'':'none';
+ puck.style.width=el.offsetWidth+'px';puck.style.transform=`translateX(${el.offsetLeft}px)`;puck.style.opacity=(zone==='dock'||zone==='panel')?1:0;
+ if(!anim)void puck.offsetWidth,puck.style.transition='';
+ setPill(label(dockItems[i]),anim,Math.sign(i-prevIdx)||1);positionPill(anim);}
+let pillCur=null,pillW=0,labelMode='above',labelIdle=null;
+const LABEL_IDLE_MS=5000;
+function showLabel(){$('#pill').classList.add('on');clearTimeout(labelIdle);labelIdle=setTimeout(hideLabel,LABEL_IDLE_MS);}
+function hideLabel(){clearTimeout(labelIdle);$('#pill').classList.remove('on');}
+function revealLabel(){ // first move after Home opens: name appears in place, no roll from a stale label
+ if(!$('#pill').classList.contains('on')){setPill(label(dockItems[dockIdx]),false);positionPill(false);}showLabel();}
+function positionPill(anim=true){const pill=$('#pill');
+ if(labelMode!=='above'){pill.style.transform='';return;}
+ const g=$('#group'),el=dockItems[dockIdx].el,gw=g.offsetWidth;
+ const cx=dock.offsetLeft+el.offsetLeft+el.offsetWidth/2;           // focused item centre, in group coordinates
+ const gLeft=960-gw/2;                                              // group's left edge on the 1920 stage
+ let dx=cx-gw/2;                                                    // shift from the centred position
+ const left=gLeft+gw/2+dx-pillW/2;                                 // keep the pill inside the 96 px safe margins
+ if(left<96)dx+=96-left;if(left+pillW>1824)dx-=left+pillW-1824;
+ if(!anim){pill.style.transition='none';}pill.style.transform=`translateX(${dx}px)`;if(!anim){void pill.offsetWidth;pill.style.transition='';}}
+function setPill(text,anim,dir=1){const pill=$('#pill'),m=$('#pillmeasure');
+ if(pillCur&&pillCur.textContent===text&&anim)return;
+ m.textContent=text;const w=pillW=Math.min(640,Math.ceil(m.getBoundingClientRect().width/(vp.clientWidth/1920))+44+2+4); // text + padding + 1px border each side + slack
+ if(!anim){pill.style.transition='none';pill.style.width=w+'px';void pill.offsetWidth;pill.style.transition='';
+  pill.querySelectorAll('.pt').forEach(e=>e.remove());pillCur=document.createElement('span');pillCur.className='pt';pillCur.textContent=text;pill.appendChild(pillCur);return;}
+ pill.style.width=w+'px';
+ pill.querySelectorAll('.pt').forEach(e=>{if(e!==pillCur)e.remove();});
+ const old=pillCur,nu=document.createElement('span');nu.className='pt';pill.appendChild(nu);pillCur=nu;
+ if(pillStyle==='cascade'){nu.setAttribute('aria-label',text);nu.innerHTML=[...text].map(c=>`<span class="ch">${c===' '?'&nbsp;':c}</span>`).join('');}
+ else nu.textContent=text;
+ if(old)old.getAnimations().forEach(a=>a.finish());
+ const out=(kf,o)=>{if(!old)return;old.animate(kf,{fill:'forwards',...o});setTimeout(()=>old.remove(),(o.duration||200)+(o.delay||0)+40);};
+ const inn=(kf,o)=>nu.animate(kf,{fill:'backwards',...o});
+ const EO='cubic-bezier(.2,.8,.2,1)',EI='cubic-bezier(.5,0,.75,0)';
+ switch(pillStyle){
+  case 'gentleroll': // odometer direction, short travel + fade, no blur
+   out([{transform:'translateY(0)',opacity:1},{transform:`translateY(${-dir*38}%)`,opacity:0}],{duration:280,easing:'cubic-bezier(.4,0,.6,1)'});
+   inn([{transform:`translateY(${dir*38}%)`,opacity:0},{transform:'none',opacity:1}],{duration:380,delay:70,easing:'cubic-bezier(.22,.7,.3,1)'});break;
+  case 'softroll': // odometer direction + blur, short travel, slower and softer
+   out([{transform:'translateY(0)',filter:'blur(0px)',opacity:1},{transform:`translateY(${-dir*38}%)`,filter:'blur(4px)',opacity:0}],{duration:280,easing:'cubic-bezier(.4,0,.6,1)'});
+   inn([{transform:`translateY(${dir*38}%)`,filter:'blur(4px)',opacity:0},{transform:'none',filter:'blur(0px)',opacity:1}],{duration:380,delay:70,easing:'cubic-bezier(.22,.7,.3,1)'});break;
+  case 'slideup':
+   out([{transform:'translateY(0)',opacity:1},{transform:'translateY(-70%)',opacity:0}],{duration:150,easing:EI});
+   inn([{transform:'translateY(70%)',opacity:0},{transform:'none',opacity:1}],{duration:220,delay:50,easing:EO});break;
+  case 'roll': // odometer: right rolls up, left rolls down, no fade
+   out([{transform:'translateY(0)'},{transform:`translateY(${-dir*100}%)`}],{duration:240,easing:EO});
+   inn([{transform:`translateY(${dir*100}%)`},{transform:'none'}],{duration:240,easing:EO});break;
+  case 'direction': // follows the D-pad: moving right, names slide in from the right
+   out([{transform:'translateX(0)',opacity:1},{transform:`translateX(${-dir*28}px)`,opacity:0}],{duration:140,easing:EI});
+   inn([{transform:`translateX(${dir*28}px)`,opacity:0},{transform:'none',opacity:1}],{duration:220,delay:40,easing:EO});break;
+  case 'blur':
+   out([{filter:'blur(0px)',opacity:1},{filter:'blur(8px)',opacity:0}],{duration:130,easing:'ease-in'});
+   inn([{filter:'blur(8px)',opacity:0,transform:'scale(.96)'},{filter:'blur(0px)',opacity:1,transform:'none'}],{duration:220,delay:40,easing:EO});break;
+  case 'cascade':
+   out([{opacity:1},{opacity:0}],{duration:100,easing:'linear'});
+   nu.querySelectorAll('.ch').forEach((c,k)=>c.animate([{transform:'translateY(60%)',opacity:0},{transform:'none',opacity:1}],{duration:200,delay:30+k*16,easing:EO,fill:'backwards'}));break;
+  case 'fade':
+   out([{opacity:1},{opacity:0}],{duration:120,easing:'linear'});
+   inn([{opacity:0},{opacity:1}],{duration:160,delay:60,easing:'linear'});break;}
+}
+let pillStyle='roll';
+function bump(dir){puck.animate([{transform:puck.style.transform},{transform:puck.style.transform+` translateX(${dir*10}px)`},{transform:puck.style.transform}],{duration:160,easing:'ease-out'});}
+
+/* ---------- toast ---------- */
+let toastT;function toast(msg,ms=1600){const t=$('#toast');t.innerHTML=msg;t.classList.add('show');clearTimeout(toastT);if(ms)toastT=setTimeout(()=>t.classList.remove('show'),ms);}
+function hideToast(){clearTimeout(toastT);$('#toast').classList.remove('show');}
+
+/* ---------- sound panel ---------- */
+let outputs=[],rowIdx=0,lastPicked='Soundbar',busy=false;
+function buildOutputs(){outputs=[{n:'Soundbar',s:'Bluetooth',ic:'soundbar'},{n:'TV speaker',s:'Built-in',ic:'tvspk'}];
+ if(scen.headphones)outputs.push({n:"My AirPods Pro",s:'Bluetooth · Not connected',ic:'headphones',off:true},
+  {n:'Sony WH-1000XM5 Wireless Noise Cancelling Headphones',s:'Bluetooth',ic:'headphones'});
+ outputs.push({rule:true});
+ if(scen.headphones)outputs.push({n:'Pair a new device',ic:'plus',link:true,act:'pair'});
+ outputs.push({n:'Samsung sound settings',link:true,chev:true,act:'settings'});}
+function renderRows(){const inr=$('#rowsin');inr.innerHTML='<div class="rpuck" id="rpuck"></div>';
+ outputs.forEach((o,i)=>{if(o.rule){const r=document.createElement('div');r.className='rule';inr.appendChild(r);return;}
+  const r=document.createElement('div');r.className='row'+(o.link?' small link':'')+(o.off?' off':'');
+  r.innerHTML=`<span class="ic slotic">${o.ic?ICONS[o.ic]:''}</span><div class="txt"><div class="t">${o.n}</div></div>`+
+   (o.busy?'<span class="spin"></span>':o.chev?`<span class="ic" style="width:26px;height:26px;opacity:.6">${ICONS.chev}</span>`:'');
+  inr.appendChild(r);o.el=r;});
+ $('#rows').classList.toggle('fade',inr.scrollHeight>370);moveRow(rowIdx,false);}
+const selectable=()=>outputs.map((o,i)=>o.rule?null:i).filter(i=>i!==null);
+function moveRow(i,anim=true){rowIdx=i;const o=outputs[i],rp=$('#rpuck');outputs.forEach(x=>x.el&&x.el.classList.toggle('f',x===o));
+ rp.style.transition=anim?'':'none';rp.style.height=o.el.offsetHeight+'px';rp.style.transform=`translateY(${o.el.offsetTop}px)`;
+ const max=Math.max(0,$('#rowsin').scrollHeight-368);const off=Math.min(max,Math.max(0,o.el.offsetTop+o.el.offsetHeight-340));
+ $('#rowsin').style.transform=`translateY(${-off}px)`;}
+function placePanel(){const p=$('#panel'),snd=dockItems[dockItems.length-1].el;const g=$('#group');
+ const cx=g.offsetLeft-g.offsetWidth/2+dock.offsetLeft+snd.offsetLeft+snd.offsetWidth/2;
+ const left=Math.min(1920-96-520,Math.max(96,cx-260));p.style.left=left+'px';
+ p.style.bottom=(96+dock.offsetHeight+22)+'px';p.style.transformOrigin=`${cx-left}px 100%`;}
+let panelSession=0;
+function openPanel(){panelSession++;buildOutputs();zone='panel';hideLabel();placePanel();
+ rowIdx=Math.max(0,outputs.findIndex(o=>o.n===lastPicked));renderRows();focusDock(dockIdx,false);
+ dockItems[dockIdx].el.classList.add('f');$('#panel').classList.add('open');}
+function closePanel(){$('#panel').classList.remove('open');zone='dock';focusDock(dockIdx);}
+async function pickRow(){const o=outputs[rowIdx];if(busy)return;
+ if(o.link){closePanel();toast(o.act==='pair'?'Opening Samsung Bluetooth settings…':'Opening Samsung sound settings…');return;}
+ const session=panelSession;busy=true;o.busy=true;renderRows();await wait(1100);o.busy=null;busy=false;
+ const stillOpen=zone==='panel'&&session===panelSession;
+ if(o.off){if(stillOpen)renderRows();toast(`Couldn't reach ${o.n.split(' ').slice(0,2).join(' ')}. Is it on?`,2200);return;}
+ lastPicked=o.n;if(stillOpen)closePanel();toast(`Sound → ${o.n.length>28?o.n.slice(0,26)+'…':o.n}`);}
+
+/* ---------- all apps ---------- */
+let tiles=[],tileIdx=0;
+function tileEl(id,label,g,extra=''){const el=document.createElement('div');el.className='tile '+extra;
+ el.innerHTML=`${g}<div class="tlab cut"><span>${label}</span></div>`;return el;}
+function buildAll(){const ga=$('#gridApps'),gs=$('#gridSrc');ga.innerHTML=gs.innerHTML='';tiles=[];
+ const apps=['youtube','netflix','viki','hbo','disney','prime','peacock','tubi','kocowa','appletv','tvplus'];
+ if(scen.long)apps.push('paramount');if(scen.missing)apps.push('pbs');
+ apps.forEach(id=>{const el=tileEl(id,appName(id),glyph(id,52));ga.appendChild(el);tiles.push({id,el,name:appName(id)});});
+ const src=[['tv','TV','tv'],['xbox','Xbox · HDMI','xbox'],['exp','Expansion · USB','hdd'],['pc','PC on TV','pc'],['snd','Sound output','speaker']];
+ src.forEach(([id,n,ic])=>{const off=id==='exp'&&scen.unplugged;
+  const el=tileEl(id,n,`<span class="ic">${ICONS[ic]}</span>`,off?'off':'');
+  gs.appendChild(el);tiles.push({id,el,name:n,off});});}
+let marq,marqEl;function focusTile(i){tileIdx=i;tiles.forEach((t,j)=>t.el.classList.toggle('f',j===i));
+ if(marq){marq.cancel();marq=null;marqEl.classList.remove('m');marqEl.parentElement.classList.remove('scroll');}
+ const lab=tiles[i].el.querySelector('.tlab'),sp=lab.firstElementChild;
+ const over=lab.scrollWidth-lab.clientWidth;if(over>4){marqEl=sp;sp.classList.add('m');lab.classList.add('scroll');marq=sp.animate([{transform:'translateX(0)',offset:0},{transform:'translateX(0)',offset:.2},
+  {transform:`translateX(${-over-8}px)`,offset:.75},{transform:`translateX(${-over-8}px)`,offset:1}],{duration:1200+over*28,iterations:Infinity,easing:'ease-in-out'});}}
+function chrome(show){const o=show?'':'0';$('#dock').style.opacity=o;[...$('#top').children].forEach(c=>c.style.opacity=o);
+ $('#group').style.transform=show?'translateX(-50%)':'translateX(-50%) translateY(40px)';}
+function openAll(){hideLabel();zone='all';buildAll();setBlur(true);
+ chrome(false);$('#all').classList.add('open');
+ tiles.forEach((t,i)=>{t.el.classList.add('enter');t.el.style.animationDelay=(i*18)+'ms';});focusTile(0);}
+function closeAll(){zone='dock';setBlur(false);tiles.forEach(t=>t.el.classList.remove('enter'));$('#all').classList.remove('open');
+ chrome(true);focusDock(dockIdx);}
+function spatial(list,i,dir){const r=e=>e.getBoundingClientRect();const a=r(list[i].el),ax=a.left+a.width/2,ay=a.top+a.height/2;
+ let best=-1,bd=1e9;list.forEach((t,j)=>{if(j===i)return;const b=r(t.el),bx=b.left+b.width/2,by=b.top+b.height/2,dx=bx-ax,dy=by-ay;
+  const ok=dir==='left'?dx<-5:dir==='right'?dx>5:dir==='up'?dy<-5:dy>5;if(!ok)return;
+  const prim=dir==='left'||dir==='right'?Math.abs(dx):Math.abs(dy),sec=dir==='left'||dir==='right'?Math.abs(dy):Math.abs(dx);
+  const d=prim+sec*3;if(d<bd){bd=d;best=j;}});return best;}
+
+/* ---------- launching ---------- */
+async function launch(id){const a=APPS[id];hideLabel();if(id==='exp'&&scen.unplugged){toast('Expansion drive not connected');return;}toast(a.src?`Switching to ${appName(id)}…`:`Opening ${appName(id)}…`,1100);
+ dockItems[dockIdx]&&dockItems[dockIdx].el.animate([{transform:'scale(1)'},{transform:'scale(.92)'},{transform:'scale(1)'}],{duration:200});
+ if(zone==='all')closeAll();}
+
+/* ---------- dock editing (hold OK) ---------- */
+let editId=null,editFocus='app';
+const nudge=(el,dx,base='')=>el.animate([{transform:`${base}`},{transform:`translateX(${dx}px) ${base}`},{transform:`${base}`}],{duration:180,easing:'ease-out'});
+function editEl(){return dockItems.find(x=>x.id===editId).el;}
+function renderEdit(){const el=editEl(),xp=$('#xpill');
+ dockItems.forEach(x=>x.el.classList.toggle('editing',x.id===editId));
+ xp.style.left=(el.offsetLeft+el.offsetWidth/2-xp.offsetWidth/2)+'px';xp.classList.add('show');xp.classList.toggle('f',editFocus==='x');}
+function editHint(){toast(`<b>◀ ▶</b> Move &nbsp;·&nbsp; <b>▲</b> Unpin &nbsp;·&nbsp; <b>OK</b> Done`,0);}
+function enterEdit(){zone='edit';editId=dockItems[dockIdx].id;editFocus='app';dock.classList.add('editing');hideLabel();
+ focusDock(dockIdx,false);renderEdit();editHint();}
+function exitEdit(){zone='dock';dock.classList.remove('editing');dockItems.forEach(x=>x.el.classList.remove('editing'));
+ $('#xpill').classList.remove('show','f');editId=null;hideToast();focusDock(dockIdx);}
+function moveEdit(dir){const i=pinned.indexOf(editId),j=i+dir;
+ if(j<0||j>=pinned.length){nudge(editEl(),dir*10,'scale(1.15)');return;}
+ [pinned[i],pinned[j]]=[pinned[j],pinned[i]];dockIdx=j;editFocus='app';buildDock(true);renderEdit();}
+async function unpinEdit(){if(inputLock)return;inputLock=true;
+ const id=editId,name=appName(id),el=editEl();
+ $('#xpill').classList.remove('show','f');
+ el.animate([{transform:'scale(1.15)',opacity:1},{transform:'scale(.5)',opacity:0}],{duration:180,easing:'cubic-bezier(.5,0,.75,0)',fill:'forwards'});
+ await wait(180);const i=pinned.indexOf(id);if(i>=0)pinned.splice(i,1);dock.classList.remove('editing');editId=null;zone='dock';inputLock=false;
+ dockIdx=Math.max(0,pinned.length>i?i:i-1);buildDock(true);toast(`Unpinned <b>${name}</b>. It's still in All apps.`,2000);}
+function pinTile(t){const id=t.id;
+ if(id==='snd')return toast('Sound already lives at the end of the dock');
+ if(t.off)return toast('Expansion drive not connected');
+ if(pinned.includes(id))return toast(`<b>${t.name}</b> is already in the dock`);
+ if(pinned.length>=MAX_PINNED){t.el.animate([{transform:'scale(1.05)'},{transform:'translateX(-8px) scale(1.05)'},{transform:'translateX(8px) scale(1.05)'},{transform:'scale(1.05)'}],{duration:240});
+  return toast('Dock is full: 7 apps. Hold <b>OK</b> on one on Home to unpin it.',2800);}
+ pinned.push(id);buildDock(false);
+ t.el.animate([{transform:'scale(1.05)'},{transform:'scale(1.12)'},{transform:'scale(1.05)'}],{duration:260,easing:'cubic-bezier(.2,.8,.2,1)'});
+ toast(`Pinned <b>${appName(id)}</b> to the end of the dock`);}
+function longPress(){
+ if(zone==='dock'){const d=dockItems[dockIdx];if(d.kind!=='app')return;
+  enterEdit();}
+ else if(zone==='all')pinTile(tiles[tileIdx]);
+ else if(zone!=='edit')key('ok');}
+
+/* ---------- input ---------- */
+let inputLock=false;            // true only during short, uninterruptible transitions
+function key(k){if(inputLock)return;
+ if(zone==='dock'){
+  if(k==='left'){const was=$('#pill').classList.contains('on');dockIdx>0?focusDock(dockIdx-1,true):bump(-1);if(!was)revealLabel();else showLabel();}
+  else if(k==='right'){const was=$('#pill').classList.contains('on');dockIdx<dockItems.length-1?focusDock(dockIdx+1,true):bump(1);if(!was)revealLabel();else showLabel();}
+  else if(k==='up'){hideLabel();zone='gear';$('#gear').classList.add('f');focusDock(dockIdx);}
+  else if(k==='ok'){const d=dockItems[dockIdx];if(d.kind==='sound')openPanel();else if(d.kind==='all')openAll();else launch(d.id);}
+ }else if(zone==='edit'){
+  if(k==='left'||k==='right')moveEdit(k==='left'?-1:1);
+  else if(k==='up'){editFocus='x';renderEdit();}
+  else if(k==='down'){editFocus='app';renderEdit();}
+  else if(k==='ok'){editFocus==='x'?unpinEdit():exitEdit();}
+  else if(k==='back')exitEdit();
+ }else if(zone==='gear'){
+  if(k==='down'||k==='back'){zone='dock';$('#gear').classList.remove('f');focusDock(dockIdx);}
+  else if(k==='ok')toast('Launcher settings');
+ }else if(zone==='panel'){const sel=selectable(),p=sel.indexOf(rowIdx);
+  if(k==='up'&&p>0)moveRow(sel[p-1]);else if(k==='down'&&p<sel.length-1)moveRow(sel[p+1]);
+  else if(k==='back'||k==='down'&&p===sel.length-1)closePanel();else if(k==='ok')pickRow();
+ }else if(zone==='all'){
+  if(k==='back'){closeAll();return;}
+  if(k==='ok'){const t=tiles[tileIdx];if(t.off){toast('Expansion drive not connected');return;}
+   if(t.id==='snd'){closeAll();inputLock=true;setTimeout(()=>{inputLock=false;if(zone==='dock'){focusDock(dockItems.length-1);openPanel();}},260);return;}
+   launch(t.id);return;}
+  const j=spatial(tiles,tileIdx,k);if(j>=0)focusTile(j);else tiles[tileIdx].el.animate([{transform:'scale(1.05)'},{transform:'scale(1.02)'},{transform:'scale(1.05)'}],{duration:160});}}
+const KEYMAP={ArrowLeft:'left',ArrowRight:'right',ArrowUp:'up',ArrowDown:'down',Enter:'ok',' ':'ok',Backspace:'back',Escape:'back'};
+const HOLD_MS=550;let holdT=null,held=false;
+function cancelHold(){if(holdT){clearTimeout(holdT);holdT=null;}held=false;}
+function okDown(){if(holdT)return;held=false;holdT=setTimeout(()=>{holdT=null;held=true;longPress();},HOLD_MS);}
+function okUp(){if(holdT){clearTimeout(holdT);holdT=null;key('ok');}held=false;}
+vp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();if(!e.repeat)okDown();return;}
+ const k=KEYMAP[e.key];if(k){e.preventDefault();if(holdT)cancelHold();key(k);}});
+vp.addEventListener('blur',cancelHold);window.addEventListener('blur',cancelHold);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelHold();});
+vp.addEventListener('keyup',e=>{if(e.key==='Enter'){e.preventDefault();okUp();}});
+vp.addEventListener('click',()=>vp.focus());
+document.querySelectorAll('[data-k]').forEach(b=>{if(b.dataset.k==='ok'){b.onpointerdown=e=>{e.preventDefault();okDown();};b.onpointerup=okUp;b.onpointerleave=cancelHold;b.onpointercancel=cancelHold;}else b.onclick=()=>key(b.dataset.k);});
+$('#holdok').onclick=()=>longPress();
+document.querySelectorAll('[data-pill]').forEach(b=>b.onclick=()=>{pillStyle=b.dataset.pill;document.querySelectorAll('[data-pill]').forEach(x=>x.classList.toggle('on',x===b));vp.focus();});
+document.querySelectorAll('[data-sc]').forEach(b=>b.onclick=()=>{const s=b.dataset.sc;scen[s]=!scen[s];b.classList.toggle('on',scen[s]);
+ buildDock(false);if(zone==='panel'){buildOutputs();renderRows();}if(zone==='all'){buildAll();focusTile(0);}Art.refreshCredit();});
+
+/* ---------- UI watchdog ---------- */
+setInterval(()=>{
+ if(Art.state.overlay!==(zone==='all'))Art.setOverlay(zone==='all');
+ const pts=document.querySelectorAll('#pill .pt');if(pts.length>2)[...pts].slice(0,-1).forEach(e=>e.remove());
+ if(zone!=='edit'&&$('#xpill').classList.contains('show'))$('#xpill').classList.remove('show','f');
+ if(zone!=='all'&&$('#all').classList.contains('open'))closeAll();
+ if(zone!=='panel'&&$('#panel').classList.contains('open'))$('#panel').classList.remove('open');
+},1000);
+
+/* ---------- self-test: random input, checks invariants after every step ---------- */
+async function selfTest(steps=160){const out=$('#selftest');out.textContent='Running…';const problems=[];
+ const keys=['left','right','left','right','up','down','ok','back','back'];
+ const check=(label)=>{const s=Art.state,F=Art.layers[s.front],B=Art.layers[1-s.front];
+  if(s.overlay!==(zone==='all'))problems.push(label+': blur does not match All apps');
+  if(s.phase==='idle'&&(F.el.style.opacity!=='1'||B.el.style.opacity!=='0'))problems.push(label+': artwork layers out of sync');
+  const want=(s.phase==='out'||s.phase==='swap'||s.overlay)?'1':'0';
+  if(['idle','in','out'].includes(s.phase)&&F.soft.style.opacity!==want)problems.push(label+': blur target wrong ('+s.phase+')');
+  if(document.querySelectorAll('#pill .pt').length>2)problems.push(label+': label copies piling up');
+  if(new Set(pinned).size!==pinned.length||pinned.length>MAX_PINNED)problems.push(label+': dock list corrupt');
+  if(zone==='edit'&&!pinned.includes(editId))problems.push(label+': editing an app that is gone');};
+ for(let i=0;i<steps;i++){const r=Math.random();let label;
+  if(r<.08){Art.next();label='next artwork';}
+  else if(r<.16){if(zone==='dock'){focusDock(dockItems.findIndex(d=>d.id==='all'),false);key('ok');}label='open All apps';}
+  else if(r<.22){longPress();label='hold OK';}
+  else if(r<.26){Art.setSpeed(Math.random()<.5?'fast':'real');label='change speed';}
+  else{const k=keys[Math.floor(Math.random()*keys.length)];key(k);label='key '+k;}
+  await wait(40+Math.random()*260);check(label+' @'+i);}
+ while(zone!=='dock'){key('back');await wait(300);if(zone==='gear')key('down');}
+ await wait(PH.out+PH.swap+PH.in+600);check('final');
+ const uniq=[...new Set(problems)];
+ out.textContent=uniq.length?`Self-test: ${uniq.length} problem(s): `+uniq.slice(0,4).join(' · '):`Self-test passed: ${steps} random actions, 0 problems`+(Art.state.repairs.length?` (watchdog repairs: ${Art.state.repairs.length})`:'');
+ document.documentElement.setAttribute('data-selftest',out.textContent);vp.focus();return uniq;}
+$('#runtest').onclick=()=>selfTest();
+
+/* ---------- TV-accurate mode ---------- */
+let tvMode=false;const glass=[];
+function addGlass(el){const f=document.createElement('div');f.className='fglass';
+ f.innerHTML=`<div class="fwin"><div class="fd"><canvas width="${SOFT_W}" height="${SOFT_H}"></canvas></div><div class="fd"><canvas width="${SOFT_W}" height="${SOFT_H}"></canvas></div><div class="fscrim"></div></div><div class="ftint"></div>`;
+ el.insertBefore(f,el.firstChild);glass.push({el,win:f.querySelector('.fwin'),fds:[...f.querySelectorAll('.fd')].map(d=>({d,cv:d.querySelector('canvas'),ver:-1}))});}
+['#pill','#dock','#panel','#gear'].forEach(s=>addGlass($(s)));
+function syncGlass(){if(!tvMode)return;const sr=stage.getBoundingClientRect(),sc=vp.clientWidth/1920;
+ const mats=slots.map(s=>({o:getComputedStyle(s.el).opacity,t:getComputedStyle(s.drift).transform,soft:s.soft,ver:s.ver}));
+ for(const g of glass){const r=g.el.getBoundingClientRect();
+  const x=(r.left-sr.left)/sc+g.el.clientLeft,y=(r.top-sr.top)/sc+g.el.clientTop;
+  g.win.style.transform=`translate(${-x}px,${-y}px)`;
+  mats.forEach((m,k)=>{const f=g.fds[k];f.d.style.opacity=m.o;f.d.style.transform=m.t==='none'?'':m.t;if(f.ver!==m.ver){const c=f.cv.getContext('2d');c.clearRect(0,0,SOFT_W,SOFT_H);c.drawImage(m.soft,0,0);f.ver=m.ver;}});}
+ requestAnimationFrame(syncGlass);}
+function setRender(mode){const was=tvMode;tvMode=mode==='tv';stage.classList.toggle('tv',mode==='tv');stage.classList.toggle('flat',mode==='flat');
+ document.querySelectorAll('[data-render]').forEach(b=>b.classList.toggle('on',b.dataset.render===mode));
+ $('#tvbadge').textContent=mode==='tv'?'TV-accurate · faked glass':'TV with no glass';
+ if(tvMode&&!was)syncGlass();
+ toast(mode==='real'?'Mac browser · real live blur':mode==='tv'?'TV-accurate · glass faked from the blurred painting':'TV with no glass · just the tint over the painting',1800);vp.focus();}
+document.querySelectorAll('[data-render]').forEach(b=>b.onclick=()=>setRender(b.dataset.render));
+document.querySelectorAll('[data-label]').forEach(b=>b.onclick=()=>{labelMode=b.dataset.label;document.querySelectorAll('[data-label]').forEach(x=>x.classList.toggle('on',x===b));positionPill(true);vp.focus();});
+
+/* ---------- clock ---------- */
+function tick(){const d=new Date();let h=d.getHours()%12||12;$('#clock').textContent=`${h}:${String(d.getMinutes()).padStart(2,'0')}`;}
+tick();setInterval(tick,10000);
+buildDock(false);
+console.log('prototype ready');
+/* ---------- review hooks: #sound, #all, #longpill ---------- */
+setTimeout(()=>{const h=location.hash.slice(1).replace('-still','');
+ if(h==='sound'){scen.headphones=true;focusDock(dockItems.length-1,false);openPanel();setTimeout(()=>moveRow(3),400);}
+ if(h==='all'){scen.long=true;scen.unplugged=true;buildDock(false);openAll();setTimeout(()=>focusTile(11),500);}
+ if(h==='tv')setRender('tv');
+ if(h==='selftest')setTimeout(()=>selfTest(),800);
+ if(h==='flat')setRender('flat');
+ if(h==='above'){focusDock(0,false);revealLabel();}
+ if(h==='above2'){focusDock(4,false);revealLabel();}
+ if(h==='edit'||h==='editx'){focusDock(3,false);enterEdit();if(h==='editx'){editFocus='x';renderEdit();}}
+ if(h==='full'){pinned=['youtube','netflix','xbox','viki','prime','disney','hbo'];buildDock(false);}
+ if(h==='longpill'){scen.long=true;buildDock(false);focusDock(3,false);revealLabel();}},300);
+</script>
+<script>
+(function(){
+  if(window.Element && !Element.prototype.getAnimations){ Element.prototype.getAnimations=function(){return [];}; }
+  function recompute(){ try{ if(typeof buildDock==='function') buildDock(false); }catch(e){} }
+  function flexGapOK(){var f=document.createElement('div');f.style.cssText='display:flex;flex-direction:column;row-gap:1px;position:absolute;visibility:hidden';f.appendChild(document.createElement('div'));f.appendChild(document.createElement('div'));document.body.appendChild(f);var ok=f.scrollHeight===1;document.body.removeChild(f);return ok;}
+  try{ if(!flexGapOK()){ document.documentElement.classList.add('no-flex-gap'); recompute(); } }catch(e){}
+  try{ if(document.fonts && document.fonts.ready){ document.fonts.ready.then(recompute); } }catch(e){}
+  setTimeout(recompute,1200);
+  try{ if(typeof setRender==='function'){ setRender('tv'); if(typeof hideToast==='function') hideToast(); } }catch(e){}
+  /* label: no text animation, just set instantly */
+  try{ if(typeof setPill==='function'){ window.__osp=setPill; window.setPill=function(t,a,d){ return window.__osp(t,false,d); }; } }catch(e){}
+  /* calm artwork cadence (2 min) */
+  try{ var _sp=document.querySelector('[data-speed="real"]'); if(_sp) _sp.click(); }catch(e){}
+  /* remove the edit "move apps" helper hint */
+  try{ window.editHint=function(){}; }catch(e){}
+  var APPID={youtube:'9Ur5IzDKqV.TizenYouTube',netflix:'org.tizen.netflix-app',viki:'q394VGbAL0.RakutenViki',prime:'org.tizen.primevideo',disney:'MCmYXNxgcu.DisneyPlus',tubi:'3KA0pm7a7V.TubiTV',kocowa:'79p1eXqt51.KOCOWA2'};
+  window.launch=function(id){
+    try{ hideLabel(); }catch(e){}
+    var a=(typeof APPS!=='undefined')?APPS[id]:null;
+    if(id==='tv'||id==='exp'||id==='pc'||id==='xbox'){ toast((id==='xbox'?'Switch to Xbox (HDMI)':'Input switching')+' — wiring up'); if(zone==='all'){try{closeAll();}catch(e){}} return; }
+    var appid=APPID[id];
+    if(!appid){ toast('"'+(a?appName(id):id)+'" is not installed here'); if(zone==='all'){try{closeAll();}catch(e){}} return; }
+    toast(((a&&a.src)?'Switching to ':'Opening ')+appName(id)+'…',1100);
+    try{ tizen.application.launch(appid,function(){},function(err){ toast('Could not open '+appName(id)); }); }catch(e){ toast('Launch error'); }
+    if(zone==='all'){ try{closeAll();}catch(e){} }
+  };
+  document.addEventListener('keydown',function(e){
+    if(e.keyCode===10009){ e.preventDefault(); var z=(typeof zone!=='undefined')?zone:'dock';
+      if(z==='dock'){ try{ tizen.application.getCurrentApplication().exit(); }catch(e2){} } else { try{ key('back'); }catch(e3){} } }
+  },true);
+  try{ if(window.tizen && tizen.tvinputdevice){ tizen.tvinputdevice.registerKey('Return'); } }catch(e){}
+  function refocus(){ try{ var v=document.getElementById('vp'); if(v) v.focus(); }catch(e){} }
+  refocus(); setTimeout(refocus,200); setTimeout(refocus,800); setTimeout(refocus,2000);
+  window.addEventListener('focus',refocus);
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden) refocus(); });
+})();
+</script>
+
+<script>(function(){
+  function post(d){try{var x=new XMLHttpRequest();x.open('POST','http://YOUR_MAC_IP:8099/results',true);x.setRequestHeader('Content-Type','text/plain');x.send(JSON.stringify(d));}catch(e){}}
+  var token=null; try{token=localStorage.getItem('tvtoken');}catch(e){}
+  var done=false, attempts=0;
+  function connect(){
+    if(done||attempts>14)return; attempts++;
+    var url='wss://127.0.0.1:8002/api/v2/channels/samsung.remote.control?name='+btoa('CleanFrame')+(token?('&token='+token):'');
+    var ws; try{ws=new WebSocket(url);}catch(e){post({tag:'auth',ev:'ctor '+e});return setTimeout(connect,3000);}
+    ws.onmessage=function(e){ var m; try{m=JSON.parse(e.data);}catch(x){return;}
+      if(m.event==='ms.channel.connect'){ done=true; var t=m.data&&m.data.token; if(t){token=t;try{localStorage.setItem('tvtoken',t);}catch(e){}}
+        post({tag:'auth',result:'CONNECTED',token:t||'none',attempt:attempts});
+        setTimeout(function(){try{ws.send(JSON.stringify({method:'ms.remote.control',params:{Cmd:'Click',DataOfCmd:'KEY_VOLUP',Option:'false',TypeOfRemote:'SendRemoteKey'}}));post({tag:'auth',result:'SENT KEY_VOLUP'});}catch(e){}},700);
+      } else if(m.event==='ms.channel.timeOut'){ post({tag:'auth',result:'timeout',attempt:attempts}); }
+      else if(m.event==='ms.channel.unauthorized'){ post({tag:'auth',result:'UNAUTHORIZED',attempt:attempts}); }
+      else { post({tag:'auth',result:'evt '+(m.event||'?'),attempt:attempts}); }
+    };
+    ws.onclose=function(){ if(!done) setTimeout(connect,2500); };
+    ws.onerror=function(){};
+  }
+  setTimeout(connect,2500);
+})();</script>
+
+</body></html>

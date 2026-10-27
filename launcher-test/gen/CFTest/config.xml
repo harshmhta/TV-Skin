@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="http://example.local/cleanframetest" version="0.1.0" viewmodes="maximized">
+	<tizen:application id="YOURPKGID1.CFTest" package="YOURPKGID1" required_version="2.3"/>
+	<name>CF Test</name>
+	<icon src="icon.png"/>
+	<content src="index.html"/>
+	<feature name="http://tizen.org/feature/screen.size.all"/>
+	<access origin="*" subdomains="false"></access>
+	<tizen:privilege name="http://tizen.org/privilege/application.launch"/>
+	<tizen:privilege name="http://tizen.org/privilege/application.info"/>
+	<tizen:privilege name="http://tizen.org/privilege/internet"/>
+	<tizen:privilege name="http://tizen.org/privilege/tv.inputdevice"/>
+	<tizen:metadata key="http://samsung.com/tv/metadata/prelaunch.support" value="false"/>
+	<tizen:profile name="tv"/>
+	<tizen:setting background-support="disable" context-menu="disable" encryption="disable" hwkey-event="enable" install-location="auto" screen-orientation="landscape"/>
+</widget>
