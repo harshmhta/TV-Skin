@@ -1,0 +1,6 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'dev.cleanframe.fixture'
+    compileSdk 36
+    defaultConfig { applicationId 'dev.cleanframe.fixture'; minSdk 26; targetSdk 32; versionCode 1; versionName '1' }
+}

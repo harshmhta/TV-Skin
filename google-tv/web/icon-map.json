@@ -1,0 +1,22 @@
+{
+  "dev.astra.tv": "astra",
+  "com.esaba.downloader": "downloader",
+  "com.espn.score_center": "espn",
+  "com.fancode.tv": "fancode",
+  "com.alphainventor.filemanager": "folder",
+  "com.fox.foxone": "foxone",
+  "com.hulu.livingroomplus": "hulu",
+  "in.startv.hotstar": "hotstar",
+  "com.vt.tv.tvcenter": "live-tv",
+  "com.m3u.smartphone": "playlist",
+  "com.vt.tv.mediacenter": "media-center",
+  "com.mxtech.videoplayer.ad": "media-center",
+  "com.android.vending": "googleplay",
+  "ch.protonvpn.android": "protonvpn",
+  "com.vt.tv.mobiledeviceconnectiontips": "cast",
+  "com.android.tv.settings": "settings",
+  "com.sonyliv": "sonyliv",
+  "com.spotify.tv.android": "spotify",
+  "com.stremio.one": "stremio",
+  "com.phlox.tvwebbrowser": "browser"
+}

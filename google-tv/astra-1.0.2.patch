@@ -1,0 +1,508 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 6b5607a..347bc09 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -14,8 +14,8 @@ android {
+         applicationId = "dev.astra.tv"
+         minSdk = 26
+         targetSdk = 35
+-        versionCode = 1
+-        versionName = "1.0.0"
++        versionCode = 3
++        versionName = "1.0.2"
+     }
+ 
+     signingConfigs {
+@@ -69,6 +69,7 @@ dependencies {
+     implementation(libs.media3.exoplayer)
+     implementation(libs.media3.exoplayer.hls)
+     implementation(libs.media3.ui)
++    implementation("androidx.media3:media3-session:1.5.1")
+     implementation(libs.ktor.client.core)
+     implementation(libs.ktor.client.cio)
+     implementation(libs.ktor.client.content.negotiation)
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index d023651..992a2e7 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -4,6 +4,7 @@
+     <uses-permission android:name="android.permission.INTERNET" />
+     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+     <uses-permission android:name="android.permission.WAKE_LOCK" />
++    <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
+ 
+     <uses-feature android:name="android.software.leanback" android:required="true" />
+     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+@@ -17,6 +18,7 @@
+         android:supportsRtl="true"
+         android:theme="@style/Theme.AstraTV"
+         android:usesCleartextTraffic="true">
++        <provider android:name=".discovery.PreviewArtProvider" android:authorities="dev.astra.tv.previews" android:exported="true" android:readPermission="android.permission.READ_TV_LISTINGS" />
+ 
+         <activity
+             android:name=".MainActivity"
+diff --git a/app/src/main/java/dev/astra/tv/AstraApp.kt b/app/src/main/java/dev/astra/tv/AstraApp.kt
+index 7c1c8d9..ae64a9a 100644
+--- a/app/src/main/java/dev/astra/tv/AstraApp.kt
++++ b/app/src/main/java/dev/astra/tv/AstraApp.kt
+@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.CompositionLocalProvider
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.remember
+@@ -23,6 +24,11 @@ import dev.astra.tv.ui.settings.SettingsScreen
+ import dev.astra.tv.ui.theme.AstraColors
+ import java.net.URLDecoder
+ import java.net.URLEncoder
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.withContext
++import dev.astra.tv.data.AstraJson
++import dev.astra.tv.data.HomeResponse
++import java.io.File
+ 
+ object Routes {
+     const val SETUP = "setup"
+@@ -37,7 +43,7 @@ object Routes {
+ }
+ 
+ @Composable
+-fun AstraApp() {
++fun AstraApp(previewRequest: PreviewRequest? = null) {
+     val context = LocalContext.current
+     val graph = remember { AppGraph(context) }
+     CompositionLocalProvider(LocalAppGraph provides graph) {
+@@ -48,6 +54,25 @@ fun AstraApp() {
+             return@CompositionLocalProvider
+         }
+         val nav = rememberNavController()
++        LaunchedEffect(previewRequest, current.isConfigured) {
++            if (previewRequest != null && current.isConfigured) {
++                val api = graph.api(current)
++                val event = runCatching {
++                    val cachedHome = withContext(Dispatchers.IO) { runCatching { AstraJson.decodeFromString<HomeResponse>(File(graph.cacheDir, "home.json").readText()) }.getOrNull() }
++                    if (previewRequest.eventId.startsWith("channel:")) {
++                        val streamId = previewRequest.eventId.removePrefix("channel:")
++                        (cachedHome ?: api.home(current.teams)).channels.firstNotNullOfOrNull { row -> row.feeds.find { it.streamId == streamId }?.let { graph.channelEvent(row.sport, it) } }
++                    } else graph.events[previewRequest.eventId] ?: cachedHome?.let { home -> (home.myTeams.live + home.myTeams.upcoming + home.myTeams.recent + home.sports.flatMap { it.live }).find { it.id == previewRequest.eventId } } ?: api.event(previewRequest.eventId, current.teams)
++                }.getOrNull()
++                if (event != null) {
++                    graph.events[event.id] = event
++                    val matched = event.feeds.indexOfFirst { it.streamId == previewRequest.streamId }
++                    val selectedFeed = if(matched >= 0) matched else previewRequest.feed
++                    val route = if (selectedFeed >= 0 && event.feeds.isNotEmpty()) Routes.player(event.id, selectedFeed.coerceIn(0, event.feeds.lastIndex)) else Routes.event(event.id)
++                    nav.navigate(route) { launchSingleTop = true }
++                }
++            }
++        }
+         NavHost(navController = nav, startDestination = if (current.isConfigured) Routes.HOME else Routes.SETUP) {
+             composable(Routes.SETUP) {
+                 SetupScreen(initial = current) { nav.navigate(Routes.HOME) { popUpTo(0) { inclusive = true } } }
+diff --git a/app/src/main/java/dev/astra/tv/MainActivity.kt b/app/src/main/java/dev/astra/tv/MainActivity.kt
+index 5b5ded7..a95e5a0 100644
+--- a/app/src/main/java/dev/astra/tv/MainActivity.kt
++++ b/app/src/main/java/dev/astra/tv/MainActivity.kt
+@@ -1,13 +1,23 @@
+ package dev.astra.tv
+ 
+ import android.os.Bundle
++import android.content.Intent
+ import androidx.activity.ComponentActivity
+ import androidx.activity.compose.setContent
+ import dev.astra.tv.ui.theme.AstraTheme
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.setValue
++import androidx.compose.runtime.mutableStateOf
++
++data class PreviewRequest(val eventId: String, val feed: Int, val streamId: String?, val nonce: Long = System.nanoTime())
+ 
+ class MainActivity : ComponentActivity() {
++    private var previewRequest by mutableStateOf<PreviewRequest?>(null)
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
+-        setContent { AstraTheme { AstraApp() } }
++        readPreview(intent)
++        setContent { AstraTheme { AstraApp(previewRequest) } }
+     }
++    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); setIntent(intent); readPreview(intent) }
++    private fun readPreview(intent: Intent) { previewRequest = intent.getStringExtra("astra_event_id")?.let { PreviewRequest(it, intent.getIntExtra("astra_feed_index", -1), intent.getStringExtra("astra_feed_stream_id")) } }
+ }
+diff --git a/app/src/main/java/dev/astra/tv/data/HomeRepository.kt b/app/src/main/java/dev/astra/tv/data/HomeRepository.kt
+index 1a78af2..324a1bc 100644
+--- a/app/src/main/java/dev/astra/tv/data/HomeRepository.kt
++++ b/app/src/main/java/dev/astra/tv/data/HomeRepository.kt
+@@ -6,14 +6,15 @@ import kotlinx.serialization.encodeToString
+ import java.io.File
+ 
+ /** Fetches /home and keeps the last good payload on disk so cold starts render instantly. */
+-class HomeRepository(private val api: AstraApi, private val teams: List<String>?, private val cacheFile: File) {
++class HomeRepository(private val api: AstraApi, private val teams: List<String>?, private val cacheFile: File, private val onHome: (HomeResponse) -> Unit = {}) {
+ 
+     suspend fun loadCached(): HomeResponse? = withContext(Dispatchers.IO) {
+-        runCatching { AstraJson.decodeFromString<HomeResponse>(cacheFile.readText()) }.getOrNull()
++        runCatching { AstraJson.decodeFromString<HomeResponse>(cacheFile.readText()) }.getOrNull()?.also(onHome)
+     }
+ 
+     suspend fun fetch(): HomeResponse {
+         val home = api.home(teams)
++        onHome(home)
+         withContext(Dispatchers.IO) { runCatching { cacheFile.writeText(AstraJson.encodeToString(home)) } }
+         return home
+     }
+diff --git a/app/src/main/java/dev/astra/tv/ui/event/EventScreen.kt b/app/src/main/java/dev/astra/tv/ui/event/EventScreen.kt
+index a3fe288..66fa8d6 100644
+--- a/app/src/main/java/dev/astra/tv/ui/event/EventScreen.kt
++++ b/app/src/main/java/dev/astra/tv/ui/event/EventScreen.kt
+@@ -15,8 +15,12 @@ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.itemsIndexed
+ import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.remember
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.focus.FocusRequester
++import androidx.compose.ui.focus.focusRequester
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.unit.dp
+ import androidx.compose.ui.unit.sp
+@@ -35,6 +39,10 @@ import dev.astra.tv.ui.theme.AstraColors
+ 
+ @Composable
+ fun EventScreen(event: Event, onPlay: (Int) -> Unit) {
++    val firstFeed = remember(event.id) { FocusRequester() }
++    LaunchedEffect(event.id, event.feeds.size) {
++        if (event.feeds.isNotEmpty()) firstFeed.requestFocus()
++    }
+     Row(Modifier.fillMaxSize().background(AstraColors.Background).padding(48.dp), horizontalArrangement = Arrangement.spacedBy(48.dp)) {
+         Column(Modifier.width(620.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
+             Text(event.competitionName ?: event.sport, style = MaterialTheme.typography.titleMedium, color = AstraColors.TextSecondary)
+@@ -64,7 +72,7 @@ fun EventScreen(event: Event, onPlay: (Int) -> Unit) {
+             itemsIndexed(event.feeds, key = { _, f -> f.streamId }) { i, f ->
+                 Card(
+                     onClick = { onPlay(i) },
+-                    modifier = Modifier.fillMaxWidth().height(76.dp),
++                    modifier = Modifier.fillMaxWidth().height(76.dp).then(if (i == 0) Modifier.focusRequester(firstFeed) else Modifier),
+                     shape = CardDefaults.shape(RoundedCornerShape(14.dp)),
+                     colors = CardDefaults.colors(containerColor = AstraColors.Surface, focusedContainerColor = AstraColors.SurfaceRaised),
+                     scale = CardDefaults.scale(focusedScale = 1.02f),
+diff --git a/app/src/main/java/dev/astra/tv/ui/home/HomeScreen.kt b/app/src/main/java/dev/astra/tv/ui/home/HomeScreen.kt
+index a72af35..fba3d06 100644
+--- a/app/src/main/java/dev/astra/tv/ui/home/HomeScreen.kt
++++ b/app/src/main/java/dev/astra/tv/ui/home/HomeScreen.kt
+@@ -66,9 +66,10 @@ private fun rows(home: HomeResponse): List<RowItem> = buildList {
+ 
+ @Composable
+ fun HomeScreen(settings: AppSettings, onEvent: (Event) -> Unit, onChannel: (String, Feed) -> Unit, onSettings: () -> Unit) {
++    val appContext = androidx.compose.ui.platform.LocalContext.current.applicationContext
+     val graph = LocalAppGraph.current
+     val repo = remember(settings.serverUrl, settings.secret, settings.teams) {
+-        HomeRepository(graph.api(settings), settings.teams, File(graph.cacheDir, "home.json"))
++        HomeRepository(graph.api(settings), settings.teams, File(graph.cacheDir, "home.json")) { dev.astra.tv.discovery.AstraPreviews.publish(appContext, it) }
+     }
+     val vm: HomeViewModel = viewModel(key = "${settings.serverUrl}|${settings.teams}", factory = viewModelFactory { initializer { HomeViewModel(repo) } })
+     val lifecycleOwner = LocalLifecycleOwner.current
+diff --git a/app/src/main/java/dev/astra/tv/ui/player/PlayerScreen.kt b/app/src/main/java/dev/astra/tv/ui/player/PlayerScreen.kt
+index a597b9d..233013d 100644
+--- a/app/src/main/java/dev/astra/tv/ui/player/PlayerScreen.kt
++++ b/app/src/main/java/dev/astra/tv/ui/player/PlayerScreen.kt
+@@ -34,6 +34,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
+ import androidx.compose.ui.input.key.type
+ import androidx.compose.ui.input.key.KeyEventType
+ import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.platform.LocalView
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.unit.dp
+ import androidx.compose.ui.viewinterop.AndroidView
+@@ -45,6 +46,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
+ import androidx.media3.exoplayer.ExoPlayer
+ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+ import androidx.media3.ui.PlayerView
++import androidx.media3.session.MediaSession
+ import androidx.tv.material3.MaterialTheme
+ import androidx.tv.material3.Text
+ import dev.astra.tv.data.Event
+@@ -75,7 +77,25 @@ fun PlayerScreen(event: Event, startIndex: Int, onExit: () -> Unit) {
+         val http = DefaultHttpDataSource.Factory().setUserAgent(USER_AGENT).setAllowCrossProtocolRedirects(true).setConnectTimeoutMs(15_000).setReadTimeoutMs(15_000)
+         ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(http)).build().apply { playWhenReady = true }
+     }
+-    DisposableEffect(player) { onDispose { player.release() } }
++    val view = LocalView.current
++    DisposableEffect(player, view) {
++        val wasKeepingScreenOn = view.keepScreenOn
++        val session = MediaSession.Builder(context, player).build()
++        fun updateScreenAwake() {
++            view.keepScreenOn = shouldKeepScreenAwake(player.playWhenReady, player.playbackState)
++        }
++        val listener = object : Player.Listener {
++            override fun onEvents(player: Player, events: Player.Events) { updateScreenAwake() }
++        }
++        player.addListener(listener)
++        updateScreenAwake()
++        onDispose {
++            player.removeListener(listener)
++            view.keepScreenOn = wasKeepingScreenOn
++            session.release()
++            player.release()
++        }
++    }
+ 
+     fun showOverlay() { overlayVisible = true; overlayUntil = System.currentTimeMillis() + OVERLAY_MS }
+     fun playCurrent() {
+@@ -86,6 +106,7 @@ fun PlayerScreen(event: Event, startIndex: Int, onExit: () -> Unit) {
+         player.setMediaItem(MediaItem.fromUri(feed.url))
+         player.prepare()
+         player.play()
++        dev.astra.tv.discovery.AstraPreviews.continueWatching(context, event, index)
+         showOverlay()
+     }
+     fun failAndAdvance(reason: String) {
+diff --git a/app/src/main/java/dev/astra/tv/ui/settings/SettingsScreen.kt b/app/src/main/java/dev/astra/tv/ui/settings/SettingsScreen.kt
+index 056a377..6b6a3e2 100644
+--- a/app/src/main/java/dev/astra/tv/ui/settings/SettingsScreen.kt
++++ b/app/src/main/java/dev/astra/tv/ui/settings/SettingsScreen.kt
+@@ -104,7 +104,7 @@ fun SettingsScreen(settings: AppSettings, version: String, onServer: () -> Unit,
+                     Text("Clear cache", style = MaterialTheme.typography.titleMedium, color = AstraColors.TextPrimary)
+                 }
+             }
+-            Text("Astra TV $version", style = MaterialTheme.typography.bodySmall, color = AstraColors.TextSecondary, modifier = Modifier.padding(top = 8.dp))
++            Text("Astra $version", style = MaterialTheme.typography.bodySmall, color = AstraColors.TextSecondary, modifier = Modifier.padding(top = 8.dp))
+         }
+     }
+ }
+diff --git a/app/src/main/java/dev/astra/tv/ui/setup/SetupScreen.kt b/app/src/main/java/dev/astra/tv/ui/setup/SetupScreen.kt
+index 6dca264..8ff7242 100644
+--- a/app/src/main/java/dev/astra/tv/ui/setup/SetupScreen.kt
++++ b/app/src/main/java/dev/astra/tv/ui/setup/SetupScreen.kt
+@@ -51,7 +51,7 @@ fun SetupScreen(initial: AppSettings, onDone: () -> Unit) {
+ 
+     Box(Modifier.fillMaxSize().background(AstraColors.Background), contentAlignment = Alignment.Center) {
+         Column(Modifier.width(720.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+-            Text("Astra TV", style = MaterialTheme.typography.displaySmall, color = AstraColors.TextPrimary)
++            Text("Astra", style = MaterialTheme.typography.displaySmall, color = AstraColors.TextPrimary)
+             Text(
+                 "Point the app at your Astra server. Both values come from your Heroku (or VPS) setup.",
+                 style = MaterialTheme.typography.bodyLarge, color = AstraColors.TextSecondary,
+diff --git a/app/src/main/res/drawable/banner.xml b/app/src/main/res/drawable/banner.xml
+index 8c127b0..e44514f 100644
+--- a/app/src/main/res/drawable/banner.xml
++++ b/app/src/main/res/drawable/banner.xml
+@@ -3,6 +3,6 @@
+     android:width="320dp" android:height="180dp"
+     android:viewportWidth="320" android:viewportHeight="180">
+     <path android:fillColor="#0B0B0F" android:pathData="M0,0h320v180H0z"/>
+-    <path android:fillColor="#4F8CFF" android:pathData="M160,34 L178,78 L226,84 L190,116 L200,164 L160,140 L120,164 L130,116 L94,84 L142,78 Z"/>
++    <path android:fillColor="#4F8CFF" android:pathData="M160.00,25.00 L170.58,75.44 L221.82,69.91 L177.12,95.56 L198.21,142.59 L160.00,108.00 L121.79,142.59 L142.88,95.56 L98.18,69.91 L149.42,75.44 Z"/>
+     <path android:fillColor="#FFFFFF" android:pathData="M60,152 h200 v6 h-200 z" android:fillAlpha="0.15"/>
+ </vector>
+diff --git a/app/src/main/res/drawable/ic_launcher_foreground.xml b/app/src/main/res/drawable/ic_launcher_foreground.xml
+index 50a41e7..e85d012 100644
+--- a/app/src/main/res/drawable/ic_launcher_foreground.xml
++++ b/app/src/main/res/drawable/ic_launcher_foreground.xml
+@@ -2,5 +2,5 @@
+ <vector xmlns:android="http://schemas.android.com/apk/res/android"
+     android:width="108dp" android:height="108dp"
+     android:viewportWidth="108" android:viewportHeight="108">
+-    <path android:fillColor="#4F8CFF" android:pathData="M54,22 L62,44 L86,47 L68,63 L73,87 L54,75 L35,87 L40,63 L22,47 L46,44 Z"/>
++    <path android:fillColor="#4F8CFF" android:pathData="M54.00,20.00 L59.47,46.48 L86.34,43.49 L62.84,56.87 L73.98,81.51 L54.00,63.30 L34.02,81.51 L45.16,56.87 L21.66,43.49 L48.53,46.48 Z"/>
+ </vector>
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+index fae4b3c..e6fa80e 100644
+--- a/app/src/main/res/values/strings.xml
++++ b/app/src/main/res/values/strings.xml
+@@ -1,3 +1,3 @@
+ <resources>
+-    <string name="app_name">Astra TV</string>
++    <string name="app_name">Astra</string>
+ </resources>
+diff --git a/app/src/main/java/dev/astra/tv/discovery/AstraPreviews.kt b/app/src/main/java/dev/astra/tv/discovery/AstraPreviews.kt
+new file mode 100644
+index 0000000..a721563
+--- /dev/null
++++ b/app/src/main/java/dev/astra/tv/discovery/AstraPreviews.kt
+@@ -0,0 +1,80 @@
++package dev.astra.tv.discovery
++
++import android.content.ContentValues
++import android.content.Context
++import android.content.Intent
++import android.media.tv.TvContract
++import android.util.Log
++import dev.astra.tv.MainActivity
++import dev.astra.tv.data.Event
++import dev.astra.tv.data.HomeResponse
++import org.json.JSONObject
++import java.io.File
++import java.security.MessageDigest
++import java.util.concurrent.Executors
++
++object AstraPreviews {
++    private val worker = Executors.newSingleThreadExecutor()
++
++    fun publish(context: Context, home: HomeResponse) {
++        val app = context.applicationContext
++        worker.execute {
++            runCatching {
++                val cr = app.contentResolver
++                val prefs = app.getSharedPreferences("previews", 0)
++                var channelId = prefs.getLong("channel", -1)
++                val exists = channelId >= 0 && cr.query(TvContract.buildChannelUri(channelId), arrayOf("_id"), null, null, null)?.use { it.moveToFirst() } == true
++                if (!exists) {
++                    val values = ContentValues().apply {
++                        put("type", TvContract.Channels.TYPE_PREVIEW)
++                        put("display_name", "Astra · My teams and live sports")
++                        put("app_link_intent_uri", Intent(app, MainActivity::class.java).toUri(Intent.URI_INTENT_SCHEME))
++                        put("searchable", 1)
++                    }
++                    channelId = cr.insert(TvContract.Channels.CONTENT_URI, values)!!.lastPathSegment!!.toLong()
++                    prefs.edit().putLong("channel", channelId).apply()
++                }
++                cr.delete(TvContract.buildPreviewProgramsUriForChannel(channelId), null, null)
++                val events = (home.myTeams.live + home.myTeams.upcoming + home.myTeams.recent + home.sports.flatMap { it.live })
++                    .filter { it.feeds.isNotEmpty() }.distinctBy { it.id }.take(20)
++                events.forEachIndexed { i, event ->
++                    cr.insert(TvContract.PreviewPrograms.CONTENT_URI, program(app, event, -1).apply {
++                        put("channel_id", channelId); put("weight", 20 - i)
++                    })
++                }
++                Log.i("AstraPreviews", "Published ${events.size} app previews")
++            }.onFailure { Log.w("AstraPreviews", "Could not publish app previews", it) }
++        }
++    }
++
++    fun continueWatching(context: Context, event: Event, feed: Int) {
++        val app = context.applicationContext
++        worker.execute {
++            runCatching {
++                val cr = app.contentResolver
++                cr.delete(TvContract.WatchNextPrograms.CONTENT_URI, null, null)
++                cr.insert(TvContract.WatchNextPrograms.CONTENT_URI, program(app, event, feed).apply {
++                    put("watch_next_type", 0)
++                    put("last_engagement_time_utc_millis", System.currentTimeMillis())
++                })
++                Log.i("AstraPreviews", "Published continue watching")
++            }.onFailure { Log.w("AstraPreviews", "Could not publish continue watching", it) }
++        }
++    }
++
++    private fun program(context: Context, event: Event, feed: Int): ContentValues {
++        val hash = MessageDigest.getInstance("SHA-256").digest(event.id.toByteArray()).joinToString("") { "%02x".format(it) }
++        val dir = File(context.filesDir, "preview-art").apply { mkdirs() }
++        val title = event.name.ifBlank { listOfNotNull(event.home?.name, event.away?.name).joinToString(" vs ") }
++        File(dir, "$hash.json").writeText(JSONObject().put("title", title).put("competition", event.competitionName ?: event.sport)
++            .put("status", event.status).toString())
++        val link = Intent(context, MainActivity::class.java).putExtra("astra_event_id", event.id).putExtra("astra_feed_index", feed)
++        if(feed >= 0) event.feeds.getOrNull(feed)?.let { link.putExtra("astra_feed_stream_id", it.streamId) }
++        return ContentValues().apply {
++            put("type", 0); put("title", title); put("description", event.competitionName ?: event.sport)
++            put("internal_provider_id", event.id); put("searchable", 1)
++            put("poster_art_uri", "content://dev.astra.tv.previews/art/$hash"); put("poster_art_aspect_ratio", 0)
++            put("intent_uri", link.toUri(Intent.URI_INTENT_SCHEME))
++        }
++    }
++}
+diff --git a/app/src/main/java/dev/astra/tv/discovery/PreviewArtProvider.kt b/app/src/main/java/dev/astra/tv/discovery/PreviewArtProvider.kt
+new file mode 100644
+index 0000000..f291b82
+--- /dev/null
++++ b/app/src/main/java/dev/astra/tv/discovery/PreviewArtProvider.kt
+@@ -0,0 +1,60 @@
++package dev.astra.tv.discovery
++
++import android.content.ContentProvider
++import android.content.ContentValues
++import android.database.Cursor
++import android.graphics.Bitmap
++import android.graphics.Canvas
++import android.graphics.Color
++import android.graphics.LinearGradient
++import android.graphics.Paint
++import android.graphics.Shader
++import android.graphics.Typeface
++import android.net.Uri
++import android.os.ParcelFileDescriptor
++import android.text.Layout
++import android.text.StaticLayout
++import android.text.TextPaint
++import org.json.JSONObject
++import java.io.File
++import java.io.FileNotFoundException
++
++class PreviewArtProvider : ContentProvider() {
++    override fun onCreate() = true
++    override fun getType(uri: Uri) = "image/jpeg"
++    override fun query(uri: Uri, p: Array<out String>?, s: String?, a: Array<out String>?, o: String?): Cursor? = null
++    override fun insert(uri: Uri, values: ContentValues?): Uri? = throw UnsupportedOperationException()
++    override fun delete(uri: Uri, s: String?, a: Array<out String>?) = throw UnsupportedOperationException()
++    override fun update(uri: Uri, values: ContentValues?, s: String?, a: Array<out String>?) = throw UnsupportedOperationException()
++
++    @Synchronized override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
++        val key = uri.lastPathSegment ?: throw FileNotFoundException()
++        if (mode != "r" || uri.pathSegments.firstOrNull() != "art" || !key.matches(Regex("[a-f0-9]{64}"))) throw FileNotFoundException()
++        val dir = File(requireNotNull(context).filesDir, "preview-art")
++        val metadata = File(dir, "$key.json")
++        if (!metadata.exists()) throw FileNotFoundException()
++        val output = File(dir, "$key.jpg")
++        if (!output.exists() || output.lastModified() < metadata.lastModified()) {
++            val data = JSONObject(metadata.readText())
++            val bitmap = Bitmap.createBitmap(3840, 2160, Bitmap.Config.ARGB_8888)
++            try {
++                val canvas = Canvas(bitmap)
++                val paint = Paint(Paint.ANTI_ALIAS_FLAG)
++                paint.shader = LinearGradient(0f, 0f, 3840f, 2160f, intArrayOf(Color.rgb(28, 66, 131), Color.rgb(10, 18, 34)), null, Shader.TileMode.CLAMP)
++                canvas.drawRect(0f, 0f, 3840f, 2160f, paint)
++                paint.shader = null; paint.color = Color.WHITE; paint.typeface = Typeface.create("sans-serif", Typeface.BOLD)
++                paint.textSize = 95f; canvas.drawText("ASTRA", 200f, 240f, paint)
++                paint.textSize = 68f; canvas.drawText(data.optString("competition"), 200f, 420f, paint)
++                val title = data.optString("title")
++                val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 178f; typeface = Typeface.create("sans-serif", Typeface.BOLD) }
++                val layout = StaticLayout.Builder.obtain(title, 0, title.length, textPaint, 3200).setAlignment(Layout.Alignment.ALIGN_NORMAL).setMaxLines(4).build()
++                canvas.save(); canvas.translate(200f, 750f); layout.draw(canvas); canvas.restore()
++                paint.textSize = 68f; canvas.drawText(if (data.optString("status") == "live") "LIVE NOW" else "MY TEAMS · SPORTS", 200f, 1910f, paint)
++                val temporary = File(dir, "$key.tmp")
++                temporary.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 94, it) }
++                if (!temporary.renameTo(output)) throw FileNotFoundException()
++            } finally { bitmap.recycle() }
++        }
++        return ParcelFileDescriptor.open(output, ParcelFileDescriptor.MODE_READ_ONLY)
++    }
++}
+diff --git a/app/src/main/java/dev/astra/tv/ui/player/ScreenAwake.kt b/app/src/main/java/dev/astra/tv/ui/player/ScreenAwake.kt
+new file mode 100644
+index 0000000..382346b
+--- /dev/null
++++ b/app/src/main/java/dev/astra/tv/ui/player/ScreenAwake.kt
+@@ -0,0 +1,6 @@
++package dev.astra.tv.ui.player
++
++import androidx.media3.common.Player
++
++internal fun shouldKeepScreenAwake(playWhenReady: Boolean, state: Int): Boolean =
++    playWhenReady && (state == Player.STATE_READY || state == Player.STATE_BUFFERING)
+diff --git a/app/src/test/java/dev/astra/tv/ui/player/ScreenAwakeTest.kt b/app/src/test/java/dev/astra/tv/ui/player/ScreenAwakeTest.kt
+new file mode 100644
+index 0000000..2e979fc
+--- /dev/null
++++ b/app/src/test/java/dev/astra/tv/ui/player/ScreenAwakeTest.kt
+@@ -0,0 +1,19 @@
++package dev.astra.tv.ui.player
++
++import androidx.media3.common.Player
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class ScreenAwakeTest {
++    @Test fun playingAndBufferingKeepDisplayAwake() {
++        assertTrue(shouldKeepScreenAwake(true, Player.STATE_READY))
++        assertTrue(shouldKeepScreenAwake(true, Player.STATE_BUFFERING))
++    }
++    @Test fun pausedStoppedEndedAndFailedPlaybackAllowScreensaver() {
++        assertFalse(shouldKeepScreenAwake(false, Player.STATE_READY))
++        assertFalse(shouldKeepScreenAwake(false, Player.STATE_BUFFERING))
++        assertFalse(shouldKeepScreenAwake(true, Player.STATE_IDLE))
++        assertFalse(shouldKeepScreenAwake(true, Player.STATE_ENDED))
++    }
++}

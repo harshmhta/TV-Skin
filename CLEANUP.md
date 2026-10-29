@@ -61,3 +61,12 @@ Updated as we go.
 Removed: `~/tizen-studio`, `~/tizen-studio-data`, `~/.package-manager`, `~/tizen-tools/{jdk17,jdk-dl,tizen-installer.bin,sdb-dl}`, the samsung-tv-root temp dir, and /tmp working files.
 KEPT: `~/Desktop/SamsungTVLauncher` (project), `~/SamsungCertificate` (<your-cert-profile> certs + backed-up `profiles.xml`), `~/tizen-tools/sdb` (to reach the TV).
 To rebuild later: reinstall JDK 17 + Tizen Studio 6.1 (web-cli) + Certificate-Manager/cert-add-on/TV extensions (see CLAUDE.md), re-add the `<your-cert-profile>` profile pointing at `~/SamsungCertificate/<your-cert-profile>/` (or import `profiles.xml`), then run `launcher-app/device-build/build.sh`.
+# Android TV port
+
+The Android implementation is in `google-tv/`. Installation records the previous Home and disabled-package list in the gitignored `backup/` directory. To restore a previous launcher, re-enable its package if it was separately disabled, set its recorded activity as Home, disable the optional CleanFrame key-filter service and uninstall CleanFrame. The installer does not disable system packages.
+
+The optional Accessibility service filters remote keys and cannot retrieve window contents. The app requests preview access and provides native setup recovery after Clear Data. Packaged defaults remain in the APK; subsequent custom preferences and Android grants are erased by a data reset. No global ambient/screensaver timeout is changed.
+
+Local build/verification tools include the Android SDK/NDK/CMake, JDK 17, Python and Playwright. The pinned x264 source and ARM library are generated under ignored native build directories. Build outputs, installed APK copies, device backups, UI captures, signing material and local environment files must remain outside published commits. The current renderer cache is bounded to 32 clips under the app's disposable cache directory.
+
+The optional `google-tv/astra-1.0.2.patch` applies to a separate Android app. Account settings and signing keys are supplied locally and are not included. Live/paused screen-awake behavior was verified without changing the TV's global screensaver settings. See `google-tv/VERIFIED.md` for the tested device, checks and limits.

@@ -1,4 +1,12 @@
-# TV-Skin — a calm custom launcher for Samsung Tizen TVs
+# TV-Skin for Android TV / Google TV
+
+The `android-tv` branch adds an Android implementation of the Tizen launcher. It derives the UI from the same `prototype/index.html`, preserving the floating dock, glass, navigation and editing behavior. The Android project is in [`google-tv/`](google-tv/README.md).
+
+This implementation uses Android app discovery, Watch Next and preview-channel artwork, app deep links, native settings/input intents and an optional remote-key Accessibility service. It adds a persistent UHD background decoder, a larger AM/PM clock, weather, white app icons and in-app setup recovery after Clear Data. The reset layout and weather location are configurable in [`profile.json`](google-tv/app/src/main/assets/profile.json). The optional Astra companion patch publishes event previews and fixes playback screen-awake handling.
+
+See the [Android implementation notes](google-tv/README.md) for the differences, build and installation instructions, and the [verification report](google-tv/VERIFIED.md) for the tested device and limitations. The Tizen implementation remains below and in `launcher-app/`.
+
+## Original Tizen implementation
 
 A replacement home screen for Samsung Smart TVs: full-screen public-domain artwork, a clean app dock, an all-apps grid, and remote-friendly navigation. Built and tested on a 2021 Tizen 6.0 TV (Chromium 76 web engine).
 

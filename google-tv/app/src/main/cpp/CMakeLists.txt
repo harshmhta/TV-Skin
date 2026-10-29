@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.22.1)
+project(preview_encoder C)
+add_library(x264 STATIC IMPORTED)
+set_target_properties(x264 PROPERTIES IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/../../../../native/armeabi-v7a/lib/libx264.a)
+add_library(preview_encoder SHARED encoder.c)
+target_compile_options(preview_encoder PRIVATE -O3 -mfpu=neon)
+target_include_directories(preview_encoder PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../../../native/armeabi-v7a/include)
+target_link_libraries(preview_encoder x264 jnigraphics log m)

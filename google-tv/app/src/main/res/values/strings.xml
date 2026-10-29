@@ -1,0 +1,3 @@
+<resources>
+    <string name="remote_description">Open apps using the dedicated buttons you assign in CleanFrame. This service reads button presses only. It does not read screen contents. Power, volume, voice, input and navigation buttons keep their normal behavior.</string>
+</resources>

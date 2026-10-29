@@ -12,3 +12,16 @@ backup/*.db
 # --- OS / editor noise ---
 .DS_Store
 ._*
+google-tv/.gradle/
+google-tv/**/build/
+google-tv/local.properties
+google-tv/app/src/main/assets/index.html
+google-tv/node_modules/
+google-tv/test-results/
+google-tv/__pycache__/
+google-tv/native/build-x264/
+google-tv/native/armeabi-v7a/
+google-tv/app/.cxx/
+backup/
+artifacts/
+docs/superpowers/

@@ -1,0 +1,10 @@
+{
+  "defaultPins": ["netflix", "youtube", "com.stremio.one", "prime", "disney", "astra"],
+  "weather": {
+    "city": "San Francisco",
+    "latitude": 37.77493,
+    "longitude": -122.41942,
+    "temperatureUnit": "celsius",
+    "timezone": "America/Los_Angeles"
+  }
+}
